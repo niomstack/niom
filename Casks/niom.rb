@@ -1,19 +1,19 @@
 # Homebrew Cask formula for NIOM
-# This file is auto-updated by the build-release workflow after each release.
+# Auto-updated by the build-release workflow after each release.
 #
 # Users install with:
 #   brew tap niomstack/niom https://github.com/niomstack/niom
 #   brew install --cask niom
 
 cask "niom" do
-  version "0.1.1"
+  version "0.1.2"
 
   if Hardware::CPU.intel?
     url "https://github.com/niomstack/niom/releases/download/niom-v#{version}/niom_#{version}_x64.dmg"
-    sha256 "4df13f07f70057966f39e516c1f004991819821b4e04a4255bf3662c1a2bf5ef"
+    sha256 "93cb0434d36c88bd0263cb3c43f06ed0782463cba837f291773f36892786e261"
   else
     url "https://github.com/niomstack/niom/releases/download/niom-v#{version}/niom_#{version}_aarch64.dmg"
-    sha256 "f4ded8394e937211f053849dbc2cea8ab2001b80ac2c3b9c7e805a6e6e73d360"
+    sha256 "defa8f29acb4ad4bbdeee70f583f9c628908d23c0b7e8a2a44351bd348656c41"
   end
 
   name "NIOM"

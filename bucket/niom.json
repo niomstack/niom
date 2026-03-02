@@ -1,37 +1,33 @@
 {
-    "version": "0.1.1",
-    "description": "NIOM — Neural Interface Operating Model. Ambient AI Desktop Assistant.",
-    "homepage": "https://niom.dev",
-    "license": "AGPL-3.0",
-    "architecture": {
-        "64bit": {
-            "url": "https://github.com/niomstack/niom/releases/download/niom-v0.1.1/niom_0.1.1_x64-setup.exe#/setup.exe",
-            "hash": "sha256:6628355e9b5320f8cac21998c4142ec83d72a5c1649a0f34f7f49b691d8ee9de"
-        }
-    },
-    "installer": {
-        "script": [
-            "Start-Process -FilePath \"$dir\\setup.exe\" -ArgumentList '/S', '/D=$dir' -Wait"
-        ]
-    },
-    "uninstaller": {
-        "script": [
-            "Start-Process -FilePath \"$dir\\uninstall.exe\" -ArgumentList '/S' -Wait"
-        ]
-    },
-    "checkver": {
-        "github": "https://github.com/niomstack/niom",
-        "regex": "niom-v([\\d.]+)"
-    },
-    "autoupdate": {
-        "architecture": {
-            "64bit": {
-                "url": "https://github.com/niomstack/niom/releases/download/niom-v$version/niom_${version}_x64-setup.exe#/setup.exe",
-                "hash": {
-                    "url": "https://github.com/niomstack/niom/releases/download/niom-v$version/niom_${version}_x64-setup.exe",
-                    "mode": "download"
-                }
-            }
-        }
+  "version": "0.1.2",
+  "description": "NIOM — Neural Interface Operating Model. Ambient AI Desktop Assistant.",
+  "homepage": "https://niom.dev",
+  "license": "AGPL-3.0",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/niomstack/niom/releases/download/niom-v0.1.2/niom_0.1.2_x64-setup.exe#/setup.exe",
+      "hash": "30596235f5e3333bd49696d20cd3704e5228afc1458f1c5aa0be5c8912ea4116"
     }
+  },
+  "installer": {
+    "script": [
+      "Start-Process -FilePath \"$dir\\setup.exe\" -ArgumentList \"/S\", \"/D=$dir\" -Wait"
+    ]
+  },
+  "uninstaller": {
+    "script": [
+      "Start-Process -FilePath \"$dir\\uninstall.exe\" -ArgumentList \"/S\" -Wait"
+    ]
+  },
+  "checkver": {
+    "github": "https://github.com/niomstack/niom",
+    "regex": "niom-v([\\d.]+)"
+  },
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/niomstack/niom/releases/download/niom-v$version/niom_${version}_x64-setup.exe#/setup.exe"
+      }
+    }
+  }
 }

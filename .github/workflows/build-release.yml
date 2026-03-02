@@ -1,14 +1,26 @@
 # Build Release — Cross-platform Tauri binary builds
 #
-# Triggered when release-please creates a new GitHub Release.
-# Builds signed binaries for macOS (Intel + ARM), Windows, and Linux,
-# then uploads them as release assets.
+# Triggered by:
+#   1. release-please workflow (via workflow_call) — primary trigger
+#   2. Manual dispatch — for re-running builds
+#   3. Release event — fallback if using PAT in release-please
 
 name: Build Release
 
 on:
+  workflow_call:
+    inputs:
+      tag_name:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag (e.g. niom-v0.1.0)"
+        required: true
+        type: string
   release:
-    types: [created]
+    types: [published]
 
 permissions:
   contents: write
@@ -79,6 +91,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            pkg-config \
             libwebkit2gtk-4.1-dev \
             libappindicator3-dev \
             librsvg2-dev \
@@ -109,24 +122,30 @@ jobs:
           security list-keychain -d user -s $KEYCHAIN_PATH
 
       # ── Build ──
+      - name: Resolve tag name
+        id: tag
+        run: |
+          TAG="${{ inputs.tag_name || github.event.release.tag_name }}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Building for tag: $TAG"
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Node.js target for sidecar build script
           NIOM_TARGET: ${{ matrix.node_target }}
-          # macOS notarization (set these secrets when you have your Apple Developer account)
+          # macOS notarization
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # Windows signing (Azure Trusted Signing or certificate thumbprint)
+          # Windows signing
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.event.release.tag_name }}
-          releaseName: "NIOM ${{ github.event.release.tag_name }}"
-          releaseBody: ${{ github.event.release.body }}
+          tagName: ${{ steps.tag.outputs.tag }}
+          releaseName: "NIOM ${{ steps.tag.outputs.tag }}"
           releaseDraft: false
           prerelease: true
           args: --target ${{ matrix.target }}

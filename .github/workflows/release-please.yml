@@ -4,8 +4,7 @@
 #   1. Analyzes conventional commits since the last release
 #   2. Creates/updates a Release PR with version bump + CHANGELOG.md
 #   3. When the Release PR is merged, creates a GitHub Release + tag
-#
-# The build-release workflow picks up from there.
+#   4. Triggers the build-release workflow to produce cross-platform binaries
 
 name: Release Please
 
@@ -30,3 +29,12 @@ jobs:
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  # When a release is created, build cross-platform binaries
+  build-binaries:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    uses: ./.github/workflows/build-release.yml
+    with:
+      tag_name: ${{ needs.release-please.outputs.tag_name }}
+    secrets: inherit

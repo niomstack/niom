@@ -1,0 +1,39 @@
+# NIOM — Neural Interface Operating Model
+
+## Build outputs
+/dist
+/src-tauri/target
+.node-cache/
+
+## NIOM data
+.niom/
+
+## Dependencies
+node_modules/
+
+## IDE / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+## Environment
+.env
+.env.local
+.env.*.local
+
+## Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+## Rust
+*.pdb
+
+## Misc
+nul*
+.stfolder
+.stignore

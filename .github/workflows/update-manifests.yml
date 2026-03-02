@@ -1,0 +1,132 @@
+# Update Distribution Manifests
+#
+# After a release is published (by build-release attaching all assets),
+# this workflow:
+#   1. Downloads release assets and computes SHA256 hashes
+#   2. Updates Casks/niom.rb (Homebrew Cask formula)
+#   3. Updates bucket/niom.json (Scoop manifest)
+#   4. Commits the changes to the main branch
+#
+# No extra repos or tokens needed — everything lives in this repo.
+
+name: Update Distribution Manifests
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.1.0)"
+        required: true
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  update-manifests:
+    runs-on: ubuntu-latest
+    name: Update Homebrew + Scoop
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${{ github.event.release.tag_name }}"
+          fi
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION (tag: $TAG)"
+
+      - name: Wait for all release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          echo "Waiting for release assets to be uploaded..."
+          for i in $(seq 1 30); do
+            ASSET_COUNT=$(gh release view "$TAG" --json assets --jq '.assets | length')
+            echo "  Attempt $i: $ASSET_COUNT assets found"
+            if [ "$ASSET_COUNT" -ge 4 ]; then
+              echo "✓ All assets available"
+              break
+            fi
+            if [ "$i" -eq 30 ]; then
+              echo "⚠️ Timeout — proceeding with what's available"
+            fi
+            sleep 30
+          done
+
+      - name: Download release assets and compute hashes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          mkdir -p /tmp/assets
+
+          gh release download "$TAG" --dir /tmp/assets || true
+          echo "Downloaded assets:"
+          ls -la /tmp/assets/
+
+          # Compute SHA256 for each expected asset
+          compute_hash() {
+            local file=$(ls /tmp/assets/$1 2>/dev/null | head -1)
+            if [ -n "$file" ]; then
+              sha256sum "$file" | awk '{print $1}'
+            else
+              echo "ASSET_NOT_FOUND"
+            fi
+          }
+
+          {
+            echo "SHA_MAC_INTEL=$(compute_hash '*x64.dmg')"
+            echo "SHA_MAC_ARM=$(compute_hash '*aarch64.dmg')"
+            echo "SHA_WIN64=$(compute_hash '*x64-setup.exe')"
+          } >> $GITHUB_ENV
+
+      - name: Update Homebrew Cask formula
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          sed -i \
+            -e "s/version \".*\"/version \"$VERSION\"/" \
+            -e "s/sha256 \"__SHA256_INTEL__\"/sha256 \"$SHA_MAC_INTEL\"/" \
+            -e "s/sha256 \"__SHA256_ARM__\"/sha256 \"$SHA_MAC_ARM\"/" \
+            Casks/niom.rb
+
+          # Also update any previously-filled hashes
+          # The version line is already handled, just ensure hashes update
+          echo "Updated Casks/niom.rb:"
+          cat Casks/niom.rb
+
+      - name: Update Scoop manifest
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          sed -i \
+            -e "s/\"__VERSION__\"/\"$VERSION\"/g" \
+            -e "s/__VERSION__/$VERSION/g" \
+            -e "s/\"__SHA256_WIN64__\"/\"$SHA_WIN64\"/g" \
+            bucket/niom.json
+
+          # Update version if previously filled
+          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" bucket/niom.json
+
+          echo "Updated bucket/niom.json:"
+          cat bucket/niom.json
+
+      - name: Commit and push
+        run: |
+          git config user.name "niom-bot"
+          git config user.email "bot@niom.dev"
+          git add Casks/niom.rb bucket/niom.json
+          git diff --cached --quiet && echo "No changes to commit" && exit 0
+          git commit -m "chore: update distribution manifests for ${{ steps.version.outputs.tag }}"
+          git push
+
+          echo "✓ Distribution manifests updated"

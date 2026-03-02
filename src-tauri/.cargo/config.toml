@@ -1,0 +1,13 @@
+# Fix Windows MSVC CRT linkage mismatch between esaxx-rs (/MT) and ort-sys (/MD).
+#
+# The `cc` crate (used by esaxx-rs build script) checks the `crt-static`
+# target feature to decide /MT vs /MD. Setting -crt-static ensures /MD.
+# ONNX Runtime (via fastembed) ships as a dynamic library using /MD,
+# so all C/C++ deps must also use /MD to avoid LNK2038.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=-crt-static"]
+
+[env]
+# Force C++ builds (esaxx-rs) to use dynamic CRT
+CXXFLAGS = "/MD"
+CFLAGS = "/MD"

@@ -1,0 +1,32 @@
+# Release Please — Automated versioning and changelog
+#
+# On every push to main:
+#   1. Analyzes conventional commits since the last release
+#   2. Creates/updates a Release PR with version bump + CHANGELOG.md
+#   3. When the Release PR is merged, creates a GitHub Release + tag
+#
+# The build-release workflow picks up from there.
+
+name: Release Please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

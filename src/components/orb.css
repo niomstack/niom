@@ -1,0 +1,252 @@
+.orb-container {
+    position: relative;
+}
+
+.orb-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+}
+
+/* ═══════════════════════════════════════════
+   State layers — cross-fade via opacity
+   ═══════════════════════════════════════════ */
+
+.orb-state-layer {
+    transition: opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ═══════════════════════════════════════════
+   Display — content entrance animation
+   ═══════════════════════════════════════════ */
+
+.orb-display-content {
+    animation: orb-display-enter 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes orb-display-enter {
+    from {
+        opacity: 0;
+        transform: scale(0.7);
+        filter: blur(4px);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+        filter: blur(0px);
+    }
+}
+
+/* ═══════════════════════════════════════════
+   Idle — morphing blob
+   ═══════════════════════════════════════════ */
+
+.orb-blob {
+    transform-origin: center;
+    animation: orb-blob-morph 6s ease-in-out infinite alternate;
+}
+
+@keyframes orb-blob-morph {
+    0% {
+        rx: 90;
+        ry: 85;
+        cx: 145;
+        cy: 148;
+    }
+
+    25% {
+        rx: 80;
+        ry: 95;
+        cx: 155;
+        cy: 145;
+    }
+
+    50% {
+        rx: 92;
+        ry: 82;
+        cx: 148;
+        cy: 155;
+    }
+
+    75% {
+        rx: 85;
+        ry: 90;
+        cx: 142;
+        cy: 150;
+    }
+
+    100% {
+        rx: 88;
+        ry: 87;
+        cx: 150;
+        cy: 146;
+    }
+}
+
+/* ═══════════════════════════════════════════
+   Processing — scattered particles
+   ═══════════════════════════════════════════ */
+
+.orb-particle {
+    animation: orb-particle-drift linear infinite;
+}
+
+@keyframes orb-particle-drift {
+    0% {
+        transform: translate(0, 0);
+    }
+
+    25% {
+        transform: translate(var(--dx1), var(--dy1));
+    }
+
+    50% {
+        transform: translate(var(--dx2), var(--dy2));
+    }
+
+    75% {
+        transform: translate(var(--dx3), var(--dy3));
+    }
+
+    100% {
+        transform: translate(0, 0);
+    }
+}
+
+/* ═══════════════════════════════════════════
+   Error / Warning — CSS 3D cube
+   ═══════════════════════════════════════════ */
+
+.orb-cube-3d {
+    width: 70px;
+    height: 70px;
+    position: relative;
+    transform-style: preserve-3d;
+    animation: orb-cube-spin 4s linear infinite;
+}
+
+.orb-cube-face {
+    position: absolute;
+    width: 70px;
+    height: 70px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: var(--cube-color);
+    opacity: 0.85;
+}
+
+.orb-cube-front {
+    transform: translateZ(35px);
+}
+
+.orb-cube-back {
+    transform: rotateY(180deg) translateZ(35px);
+}
+
+.orb-cube-left {
+    transform: rotateY(-90deg) translateZ(35px);
+}
+
+.orb-cube-right {
+    transform: rotateY(90deg) translateZ(35px);
+}
+
+.orb-cube-top {
+    transform: rotateX(90deg) translateZ(35px);
+    background: color-mix(in srgb, var(--cube-color), white 20%);
+}
+
+.orb-cube-bottom {
+    transform: rotateX(-90deg) translateZ(35px);
+    background: color-mix(in srgb, var(--cube-color), black 30%);
+}
+
+@keyframes orb-cube-spin {
+    from {
+        transform: rotateX(-15deg) rotateY(0deg);
+    }
+
+    to {
+        transform: rotateX(-15deg) rotateY(360deg);
+    }
+}
+
+/* ═══════════════════════════════════════════
+   Rim + glow transitions
+   ═══════════════════════════════════════════ */
+
+.orb-glow {
+    transition: fill 0.6s ease-in-out, opacity 0.6s ease-in-out;
+}
+
+.orb-border {
+    transition: opacity 0.6s ease-in-out;
+}
+
+/* Processing pulse */
+.orb-container[data-state="processing"] .orb-svg {
+    animation: orb-processing-pulse 2s ease-in-out infinite;
+}
+
+@keyframes orb-processing-pulse {
+
+    0%,
+    100% {
+        transform: scale(1);
+    }
+
+    50% {
+        transform: scale(1.05);
+    }
+}
+
+/* Error shake on entry */
+.orb-container[data-state="error"] .orb-svg {
+    animation: orb-error-shake 0.4s ease-in-out 1;
+}
+
+@keyframes orb-error-shake {
+
+    0%,
+    100% {
+        transform: translateX(0);
+    }
+
+    20% {
+        transform: translateX(-4px);
+    }
+
+    40% {
+        transform: translateX(4px);
+    }
+
+    60% {
+        transform: translateX(-3px);
+    }
+
+    80% {
+        transform: translateX(3px);
+    }
+}
+
+/* ═══════════════════════════════════════════
+   Display — orbital particles (anticlockwise)
+   ═══════════════════════════════════════════ */
+
+.orb-orbital {
+    transform-origin: 150px 150px;
+    animation: orb-orbit linear infinite;
+}
+
+@keyframes orb-orbit {
+    from {
+        transform:
+            rotate(var(--orbit-start)) translateX(var(--orbit-radius)) rotate(calc(-1 * var(--orbit-start)));
+    }
+
+    to {
+        transform:
+            rotate(calc(var(--orbit-start) - 360deg)) translateX(var(--orbit-radius)) rotate(calc(-1 * (var(--orbit-start) - 360deg)));
+    }
+}

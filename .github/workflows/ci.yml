@@ -1,0 +1,75 @@
+# CI — Runs on every pull request and push to main
+#
+# Validates:
+#   1. Backend TypeScript compiles (tsc --noEmit)
+#   2. Frontend builds (vite build)
+#   3. Rust compiles (cargo check)
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-22.04
+    name: Type Check + Build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      # ── Install ──
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install sidecar dependencies
+        run: pnpm --filter niom-ai install --frozen-lockfile
+
+      # ── Backend type check ──
+      - name: Backend — tsc --noEmit
+        run: pnpm --filter niom-ai exec tsc --noEmit
+
+      # ── Frontend build ──
+      - name: Frontend — vite build
+        run: pnpm build
+
+  rust-check:
+    runs-on: ubuntu-22.04
+    name: Rust Check
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            libssl-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Cargo check
+        run: cargo check
+        working-directory: src-tauri

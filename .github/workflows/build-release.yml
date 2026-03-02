@@ -31,8 +31,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS Intel
-          - platform: macos-13
+          # macOS Intel (cross-compile on ARM runner)
+          - platform: macos-15
             target: x86_64-apple-darwin
             node_target: darwin-x64
             label: macOS-Intel
@@ -124,6 +124,7 @@ jobs:
       # ── Build ──
       - name: Resolve tag name
         id: tag
+        shell: bash
         run: |
           TAG="${{ inputs.tag_name || github.event.release.tag_name }}"
           echo "tag=$TAG" >> $GITHUB_OUTPUT

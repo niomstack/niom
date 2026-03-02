@@ -130,6 +130,24 @@ jobs:
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "Building for tag: $TAG"
 
+      # Only export notarization env vars when Apple secrets are configured
+      - name: Configure macOS notarization
+        if: startsWith(matrix.platform, 'macos')
+        shell: bash
+        env:
+          _APPLE_ID: ${{ secrets.APPLE_ID }}
+          _APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          _APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$_APPLE_TEAM_ID" ]; then
+            echo "APPLE_ID=$_APPLE_ID" >> $GITHUB_ENV
+            echo "APPLE_PASSWORD=$_APPLE_PASSWORD" >> $GITHUB_ENV
+            echo "APPLE_TEAM_ID=$_APPLE_TEAM_ID" >> $GITHUB_ENV
+            echo "✅ Notarization configured"
+          else
+            echo "⚠️  No Apple Team ID — skipping notarization (ad-hoc signed only)"
+          fi
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
@@ -138,9 +156,6 @@ jobs:
           NIOM_TARGET: ${{ matrix.node_target }}
           # macOS signing: use ad-hoc (-) when no certificate is configured
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           # Windows signing
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}

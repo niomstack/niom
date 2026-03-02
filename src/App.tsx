@@ -36,6 +36,7 @@ import {
   ArrowUp,
   Sparkles,
 } from "lucide-react";
+import { UpdateBanner } from "./components/UpdateBanner";
 
 // ── Hover display configurations ──
 
@@ -109,10 +110,14 @@ export default function App() {
   const [sidecarOnline, setSidecarOnline] = useState<boolean | null>(null);
   const [sidecarModel, setSidecarModel] = useState<string | null>(null);
   const [sidecarUptime, setSidecarUptime] = useState<number>(0);
+  const [appVersion, setAppVersion] = useState<string>("");
 
-  // Fetch OS username
+  // Fetch OS username + app version
   useEffect(() => {
     invoke<string>("get_os_username").then(setUserName).catch(() => { });
+    import("@tauri-apps/api/app").then(({ getVersion }) =>
+      getVersion().then(setAppVersion).catch(() => { })
+    );
   }, []);
 
   // Mount animation
@@ -305,7 +310,7 @@ export default function App() {
               <div className="flex items-center gap-3">
                 <div className={`w-1.5 h-1.5 rounded-full ${sidecarOnline === false ? 'bg-red-500' : 'bg-accent'} animate-pulse`} />
                 <span className="text-[10px] uppercase tracking-[0.3em] text-text-tertiary font-medium font-mono cursor-default">
-                  {sidecarOnline === false ? "Agent Offline" : "System Active — v0.1"}
+                  {sidecarOnline === false ? "Agent Offline" : `System Active${appVersion ? ` — v${appVersion}` : ""}`}
                 </span>
                 <div className="h-px flex-1 bg-border-subtle opacity-30" />
               </div>
@@ -316,6 +321,9 @@ export default function App() {
                   ⚠ Sidecar is not running. Start it with <span className="text-text-primary">pnpm dev:sidecar</span>
                 </div>
               )}
+
+              {/* Update available banner */}
+              <UpdateBanner />
 
               {/* Greeting */}
               <div className="space-y-1">

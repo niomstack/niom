@@ -1,38 +1,36 @@
 {
-    "version": "__VERSION__",
+    "version": "0.1.1",
     "description": "NIOM — Neural Interface Operating Model. Ambient AI Desktop Assistant.",
     "homepage": "https://niom.dev",
     "license": "AGPL-3.0",
     "architecture": {
         "64bit": {
-            "url": "https://github.com/niomstack/niom/releases/download/v__VERSION__/niom___VERSION___x64-setup.exe",
-            "hash": "__SHA256_WIN64__"
+            "url": "https://github.com/niomstack/niom/releases/download/niom-v0.1.1/niom_0.1.1_x64-setup.exe#/setup.exe",
+            "hash": "sha256:6628355e9b5320f8cac21998c4142ec83d72a5c1649a0f34f7f49b691d8ee9de"
         }
     },
     "installer": {
-        "type": "inno",
-        "args": [
-            "/VERYSILENT",
-            "/SUPPRESSMSGBOXES",
-            "/NORESTART",
-            "/SP-"
+        "script": [
+            "Start-Process -FilePath \"$dir\\setup.exe\" -ArgumentList '/S', '/D=$dir' -Wait"
         ]
     },
     "uninstaller": {
-        "file": "$dir\\unins000.exe",
-        "args": [
-            "/VERYSILENT",
-            "/SUPPRESSMSGBOXES",
-            "/NORESTART"
+        "script": [
+            "Start-Process -FilePath \"$dir\\uninstall.exe\" -ArgumentList '/S' -Wait"
         ]
     },
     "checkver": {
-        "github": "https://github.com/niomstack/niom"
+        "github": "https://github.com/niomstack/niom",
+        "regex": "niom-v([\\d.]+)"
     },
     "autoupdate": {
         "architecture": {
             "64bit": {
-                "url": "https://github.com/niomstack/niom/releases/download/v$version/niom_${version}_x64-setup.exe"
+                "url": "https://github.com/niomstack/niom/releases/download/niom-v$version/niom_${version}_x64-setup.exe#/setup.exe",
+                "hash": {
+                    "url": "https://github.com/niomstack/niom/releases/download/niom-v$version/niom_${version}_x64-setup.exe",
+                    "mode": "download"
+                }
             }
         }
     }

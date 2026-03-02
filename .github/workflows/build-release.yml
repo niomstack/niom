@@ -57,6 +57,7 @@ jobs:
 
     runs-on: ${{ matrix.platform }}
     name: Build (${{ matrix.label }})
+    environment: production
 
     steps:
       - uses: actions/checkout@v4
@@ -165,3 +166,184 @@ jobs:
           releaseDraft: false
           prerelease: true
           args: --target ${{ matrix.target }}
+
+  # ── Update Scoop + Homebrew manifests with real hashes ──
+  update-manifests:
+    needs: build
+    runs-on: ubuntu-latest
+    name: Update Package Manifests
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          TAG="${{ inputs.tag_name || github.event.release.tag_name }}"
+          VERSION="${TAG#niom-v}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Updating manifests for $TAG (version $VERSION)"
+
+      - name: Download release assets and compute hashes
+        id: hashes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="${{ steps.version.outputs.tag }}"
+
+          mkdir -p /tmp/assets
+
+          echo "Downloading Windows installer..."
+          gh release download "$TAG" --repo niomstack/niom \
+            --pattern "niom_${VERSION}_x64-setup.exe" \
+            --dir /tmp/assets || echo "⚠️ Windows exe not found"
+
+          echo "Downloading macOS Intel DMG..."
+          gh release download "$TAG" --repo niomstack/niom \
+            --pattern "niom_${VERSION}_x64.dmg" \
+            --dir /tmp/assets || echo "⚠️ macOS Intel dmg not found"
+
+          echo "Downloading macOS ARM DMG..."
+          gh release download "$TAG" --repo niomstack/niom \
+            --pattern "niom_${VERSION}_aarch64.dmg" \
+            --dir /tmp/assets || echo "⚠️ macOS ARM dmg not found"
+
+          # Compute SHA256 hashes
+          WIN_HASH=""; MAC_INTEL_HASH=""; MAC_ARM_HASH=""
+
+          [ -f "/tmp/assets/niom_${VERSION}_x64-setup.exe" ] && \
+            WIN_HASH=$(sha256sum "/tmp/assets/niom_${VERSION}_x64-setup.exe" | cut -d ' ' -f 1)
+          [ -f "/tmp/assets/niom_${VERSION}_x64.dmg" ] && \
+            MAC_INTEL_HASH=$(sha256sum "/tmp/assets/niom_${VERSION}_x64.dmg" | cut -d ' ' -f 1)
+          [ -f "/tmp/assets/niom_${VERSION}_aarch64.dmg" ] && \
+            MAC_ARM_HASH=$(sha256sum "/tmp/assets/niom_${VERSION}_aarch64.dmg" | cut -d ' ' -f 1)
+
+          echo "Windows hash: $WIN_HASH"
+          echo "macOS Intel hash: $MAC_INTEL_HASH"
+          echo "macOS ARM hash: $MAC_ARM_HASH"
+
+          echo "win_hash=$WIN_HASH" >> $GITHUB_OUTPUT
+          echo "mac_intel_hash=$MAC_INTEL_HASH" >> $GITHUB_OUTPUT
+          echo "mac_arm_hash=$MAC_ARM_HASH" >> $GITHUB_OUTPUT
+
+      - name: Update Scoop manifest
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          WIN_HASH="${{ steps.hashes.outputs.win_hash }}"
+
+          jq -n \
+            --arg ver "$VERSION" \
+            --arg hash "$WIN_HASH" \
+            '{
+              version: $ver,
+              description: "NIOM — Neural Interface Operating Model. Ambient AI Desktop Assistant.",
+              homepage: "https://niom.dev",
+              license: "AGPL-3.0",
+              architecture: {
+                "64bit": {
+                  url: ("https://github.com/niomstack/niom/releases/download/niom-v" + $ver + "/niom_" + $ver + "_x64-setup.exe#/setup.exe"),
+                  hash: $hash
+                }
+              },
+              installer: {
+                script: [
+                  "Start-Process -FilePath \"$dir\\setup.exe\" -ArgumentList \"/S\", \"/D=$dir\" -Wait"
+                ]
+              },
+              uninstaller: {
+                script: [
+                  "Start-Process -FilePath \"$dir\\uninstall.exe\" -ArgumentList \"/S\" -Wait"
+                ]
+              },
+              checkver: {
+                github: "https://github.com/niomstack/niom",
+                regex: "niom-v([\\d.]+)"
+              },
+              autoupdate: {
+                architecture: {
+                  "64bit": {
+                    url: "https://github.com/niomstack/niom/releases/download/niom-v$version/niom_${version}_x64-setup.exe#/setup.exe"
+                  }
+                }
+              }
+            }' > bucket/niom.json
+
+          echo "✅ Scoop manifest updated"
+          cat bucket/niom.json
+
+      - name: Update Homebrew Cask
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          MAC_INTEL_HASH="${{ steps.hashes.outputs.mac_intel_hash }}"
+          MAC_ARM_HASH="${{ steps.hashes.outputs.mac_arm_hash }}"
+
+          cat > Casks/niom.rb << 'CASK_EOF'
+          # Homebrew Cask formula for NIOM
+          # Auto-updated by the build-release workflow after each release.
+          #
+          # Users install with:
+          #   brew tap niomstack/niom https://github.com/niomstack/niom
+          #   brew install --cask niom
+
+          cask "niom" do
+            version "NIOM_VERSION"
+
+            if Hardware::CPU.intel?
+              url "https://github.com/niomstack/niom/releases/download/niom-v#{version}/niom_#{version}_x64.dmg"
+              sha256 "INTEL_HASH"
+            else
+              url "https://github.com/niomstack/niom/releases/download/niom-v#{version}/niom_#{version}_aarch64.dmg"
+              sha256 "ARM_HASH"
+            end
+
+            name "NIOM"
+            desc "Neural Interface Operating Model — Ambient AI Desktop Assistant"
+            homepage "https://niom.dev"
+
+            livecheck do
+              url "https://github.com/niomstack/niom/releases/latest"
+              regex(/niom-v(\d+(?:\.\d+)+)/i)
+            end
+
+            depends_on macos: ">= :monterey"
+
+            app "niom.app"
+
+            zap trash: [
+              "~/.niom",
+            ]
+          end
+          CASK_EOF
+
+          # Strip leading whitespace from heredoc (YAML indentation)
+          sed -i 's/^          //' Casks/niom.rb
+          # Replace placeholders with actual values
+          sed -i "s/NIOM_VERSION/${VERSION}/g" Casks/niom.rb
+          sed -i "s/INTEL_HASH/${MAC_INTEL_HASH}/g" Casks/niom.rb
+          sed -i "s/ARM_HASH/${MAC_ARM_HASH}/g" Casks/niom.rb
+
+          echo "✅ Homebrew Cask updated"
+          cat Casks/niom.rb
+
+      - name: Commit and push manifest updates
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add bucket/niom.json Casks/niom.rb
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: update package manifests for ${{ steps.version.outputs.tag }}"
+            git push
+            echo "✅ Manifests committed and pushed"
+          fi

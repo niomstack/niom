@@ -35,6 +35,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "resources": [
       "sidecar-bundle/"
     ],
@@ -46,5 +47,16 @@
       "icons/icon.ico"
     ],
     "publisher": "NIOM"
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhCNDE2MkE5QjJDMEYzNkIKUldScjg4Q3lxV0pCaTh4QWdiU1lxR2hTWVgyZGk2R0JNbXcwZVZCLzNDR05lK0VXbjdJdjRCckYK",
+      "endpoints": [
+        "https://github.com/niomstack/niom/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

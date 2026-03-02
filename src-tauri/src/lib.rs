@@ -52,15 +52,46 @@ fn spawn_sidecar() -> Option<Child> {
 
     let paths = find_sidecar_paths();
 
+    log::info!(
+        "Sidecar paths — node: {:?}, script: {:?}, node_modules: {:?}, cwd: {:?}",
+        paths.node_bin,
+        paths.script,
+        paths.node_modules,
+        paths.working_dir
+    );
+
+    // Verify the files actually exist before trying to spawn
+    if !paths.node_bin.exists() {
+        log::error!("Node binary not found at {:?}", paths.node_bin);
+        return None;
+    }
+    if !paths.script.exists() {
+        log::error!("Sidecar script not found at {:?}", paths.script);
+        return None;
+    }
+
     let mut cmd = Command::new(&paths.node_bin);
     cmd.arg(&paths.script)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
 
+    // Set working directory so relative paths resolve correctly
+    if let Some(cwd) = &paths.working_dir {
+        cmd.current_dir(cwd);
+    }
+
     // Set NODE_PATH so bundled node_modules can be resolved
     if let Some(nm) = &paths.node_modules {
         cmd.env("NODE_PATH", nm);
         log::info!("NODE_PATH set to {:?}", nm);
+    }
+
+    // ── Windows: hide the console window ──
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW (0x08000000) prevents a visible terminal from appearing
+        cmd.creation_flags(0x08000000);
     }
 
     match cmd.spawn() {
@@ -89,6 +120,7 @@ struct SidecarPaths {
     node_bin: PathBuf,
     script: PathBuf,
     node_modules: Option<PathBuf>,
+    working_dir: Option<PathBuf>,
 }
 
 /// Find the bundled Node.js binary, sidecar script, and node_modules.
@@ -125,6 +157,7 @@ fn find_sidecar_paths() -> SidecarPaths {
                     node_bin: node,
                     script,
                     node_modules: if nm.exists() { Some(nm) } else { None },
+                    working_dir: Some(bundle),
                 };
             }
         }
@@ -136,6 +169,7 @@ fn find_sidecar_paths() -> SidecarPaths {
         node_bin: PathBuf::from("node"),
         script: PathBuf::from("niom-ai/dist/index.js"),
         node_modules: None,
+        working_dir: None,
     }
 }
 
@@ -266,6 +300,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(sidecar_state)
         .setup(move |app| {
             log::info!("NIOM data dir: {:?}", data_dir);

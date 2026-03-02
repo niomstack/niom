@@ -59,6 +59,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            pkg-config \
             libwebkit2gtk-4.1-dev \
             libappindicator3-dev \
             librsvg2-dev \
@@ -69,6 +70,9 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+
+      - name: Create sidecar-bundle stub
+        run: mkdir -p src-tauri/sidecar-bundle/dist && echo '// stub' > src-tauri/sidecar-bundle/dist/index.js
 
       - name: Cargo check
         run: cargo check

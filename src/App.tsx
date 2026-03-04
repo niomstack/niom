@@ -10,6 +10,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { WindowHeader } from "./components/WindowHeader";
 import { HomeView } from "./components/views/HomeView";
+import { BootScreen } from "./components/views/BootScreen";
 import { SettingsView } from "./components/views/SettingsView";
 import { WorkspaceView } from "./components/views/WorkspaceView";
 import { TasksView } from "./components/views/TasksView";
@@ -31,12 +32,12 @@ export default function App() {
   const [initialQuery, setInitialQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const threadState = useThreads();
-  const [sidecarOnline, setSidecarOnline] = useState<boolean | null>(null);
   const [sidecarModel, setSidecarModel] = useState<string | null>(null);
   const [sidecarUptime, setSidecarUptime] = useState<number>(0);
   const [appVersion, setAppVersion] = useState<string>("");
   const { sidecarUrl } = useConfig();
   const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
+  const [booting, setBooting] = useState(true);
 
   // Fetch OS username + app version
   useEffect(() => {
@@ -46,19 +47,29 @@ export default function App() {
     );
   }, []);
 
-  // Mount animation
+  // Mount animation + reveal window (window starts hidden to avoid blank frame)
   useEffect(() => {
-    requestAnimationFrame(() => setMounted(true));
+    // Double rAF ensures the first frame is painted before showing the window
+    requestAnimationFrame(() => {
+      requestAnimationFrame(async () => {
+        setMounted(true);
+        try {
+          const { getCurrentWindow } = await import("@tauri-apps/api/window");
+          await getCurrentWindow().show();
+          await getCurrentWindow().setFocus();
+        } catch { /* dev/non-Tauri env */ }
+      });
+    });
   }, []);
 
-  // Sidecar health check + periodic polling
+  // Sidecar health check + periodic polling (only after boot completes)
   const checkSidecar = useCallback(async () => {
+    if (booting) return; // BootScreen handles its own polling
     try {
       const [healthRes, rootRes] = await Promise.all([
         fetch(`${sidecarUrl}/health`),
         fetch(`${sidecarUrl}/`).catch(() => null),
       ]);
-      setSidecarOnline(healthRes.ok);
       if (healthRes.ok) {
         const health = await healthRes.json();
         setSidecarUptime(health.uptime_ms || 0);
@@ -68,9 +79,9 @@ export default function App() {
         setSidecarModel(root.model || null);
       }
     } catch {
-      setSidecarOnline(false);
+      // silently ignore — boot screen handles init errors
     }
-  }, [sidecarUrl]);
+  }, [sidecarUrl, booting]);
 
   useEffect(() => { checkSidecar(); }, [checkSidecar]);
   useEffect(() => {
@@ -142,15 +153,35 @@ export default function App() {
         {/* ── Window header with traffic lights + drag region ── */}
         <WindowHeader />
 
+        {/* ══ BOOT SCREEN — shown during initialization ══ */}
+        {booting && (
+          <div className="absolute inset-0 z-50 bg-surface-base pt-10 overflow-hidden">
+            <BootScreen
+              sidecarUrl={sidecarUrl}
+              appVersion={appVersion}
+              onReady={() => {
+                setBooting(false);
+                // Fetch full status now that sidecar is confirmed healthy
+                fetch(`${sidecarUrl}/`).then(r => r.json()).then(root => {
+                  setSidecarModel(root.model || null);
+                }).catch(() => { });
+                fetch(`${sidecarUrl}/health`).then(r => r.json()).then(health => {
+                  setSidecarUptime(health.uptime_ms || 0);
+                }).catch(() => { });
+              }}
+            />
+          </div>
+        )}
+
         {/* ══ SETTINGS VIEW ══ */}
-        {view === "settings" && (
+        {!booting && view === "settings" && (
           <div className="absolute inset-0 z-40 bg-surface-base pt-10">
             <SettingsView onClose={goHome} />
           </div>
         )}
 
         {/* ══ WORKSPACE VIEW ══ */}
-        {view === "workspace" && (
+        {!booting && view === "workspace" && (
           <div className="absolute inset-0 z-40 bg-surface-base pt-10">
             <WorkspaceView
               onBack={goHome}
@@ -162,25 +193,24 @@ export default function App() {
         )}
 
         {/* ══ TASKS VIEW ══ */}
-        {view === "tasks" && (
+        {!booting && view === "tasks" && (
           <div className="absolute inset-0 z-40 bg-surface-base pt-10">
             <TasksView onBack={() => { setFocusTaskId(null); goHome(); }} initialTaskId={focusTaskId} />
           </div>
         )}
 
         {/* ══ SKILLS VIEW ══ */}
-        {view === "skills" && (
+        {!booting && view === "skills" && (
           <div className="absolute inset-0 z-40 bg-surface-base pt-10">
             <SkillTreeView onBack={goHome} />
           </div>
         )}
 
         {/* ══ HOME VIEW ══ */}
-        {view === "home" && (
+        {!booting && view === "home" && (
           <HomeView
             userName={userName}
             appVersion={appVersion}
-            sidecarOnline={sidecarOnline}
             sidecarModel={sidecarModel}
             sidecarUptime={sidecarUptime}
             threadState={threadState}

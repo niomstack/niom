@@ -325,6 +325,11 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // Another instance tried to launch — focus the existing window
+            log::info!("Second instance detected — focusing existing window");
+            show_main_window(app);
+        }))
         .manage(sidecar_state)
         .manage(HotkeyState {
             registered: Mutex::new(true),
@@ -333,13 +338,8 @@ pub fn run() {
         .setup(move |app| {
             log::info!("NIOM data dir: {:?}", data_dir);
 
-            // Wait for sidecar to be healthy
-            let healthy = wait_for_sidecar(20);
-            if healthy {
-                log::info!("Sidecar is healthy on port {}", config::sidecar_port());
-            } else {
-                log::warn!("Sidecar not detected — AI features unavailable");
-            }
+            // Sidecar spawned above — BootScreen polls for readiness
+            log::info!("Sidecar spawned, UI boot screen will poll for readiness");
 
             // ─── System Tray ───
             let invoke_i =

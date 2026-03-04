@@ -91,7 +91,6 @@ const CARD_ENTRIES = [
 interface HomeViewProps {
     userName: string;
     appVersion: string;
-    sidecarOnline: boolean | null;
     sidecarModel: string | null;
     sidecarUptime: number;
     threadState: ReturnType<typeof useThreads>;
@@ -105,7 +104,6 @@ interface HomeViewProps {
 export function HomeView({
     userName,
     appVersion,
-    sidecarOnline,
     sidecarModel,
     sidecarUptime,
     threadState,
@@ -189,26 +187,12 @@ export function HomeView({
 
                         {/* Status tag */}
                         <div className="flex items-center gap-3">
-                            <div className={`w-1.5 h-1.5 rounded-full ${sidecarOnline === false ? 'bg-red-500' : 'bg-accent'} animate-pulse`} />
+                            <div className={`w-1.5 h-1.5 rounded-full bg-accent animate-pulse`} />
                             <span className="text-[10px] uppercase tracking-[0.3em] text-text-tertiary font-medium font-mono cursor-default">
-                                {sidecarOnline === false
-                                    ? `Agent Offline${appVersion ? ` — v${appVersion}` : ""}`
-                                    : `System Active${appVersion ? ` — v${appVersion}` : ""}`}
+                                {`System Active${appVersion ? ` — v${appVersion}` : ""}`}
                             </span>
                             <div className="h-px flex-1 bg-border-subtle opacity-30" />
                         </div>
-
-                        {/* Sidecar offline warning */}
-                        {sidecarOnline === false && (
-                            <div className="px-3 py-2 border border-red-500/30 bg-red-500/[0.06] text-[10px] font-mono text-red-600">
-                                ⚠ AI agent is initializing or unavailable.{" "}
-                                {window.location.port === "1420" ? (
-                                    <span>Start sidecar with <span className="text-text-primary">pnpm dev:sidecar</span></span>
-                                ) : (
-                                    <span>Try restarting the app. Logs at <span className="text-text-primary">~/.niom/</span></span>
-                                )}
-                            </div>
-                        )}
 
                         {/* Update available banner */}
                         <UpdateBanner />

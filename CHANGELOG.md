@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.8](https://github.com/niomstack/niom/compare/niom-v0.1.7...niom-v0.1.8) (2026-03-04)
+
+
+### Bug Fixes
+
+* stop sidecar before auto update start ([b6c8ada](https://github.com/niomstack/niom/commit/b6c8adaecb48171e89b4d3ba25b65f744a0b1a64))
+
 ## [0.1.7](https://github.com/niomstack/niom/compare/niom-v0.1.6...niom-v0.1.7) (2026-03-04)
 
 

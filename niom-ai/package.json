@@ -1,6 +1,6 @@
 {
     "name": "niom-ai",
-    "version": "0.1.3",
+    "version": "0.1.4",
     "description": "NIOM AI Sidecar — intelligence layer for the NIOM daemon",
     "private": true,
     "license": "AGPL-3.0",

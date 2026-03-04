@@ -1,11 +1,11 @@
 /**
  * Tasks module — background task management for NIOM.
  *
- * Re-exports all public types and the TaskManager singleton.
+ * Task Streams model: tasks flow autonomously, users steer via comments.
  */
 
 export { TaskManager } from "./manager.js";
-export { executeTask, approveRun, taskEvents } from "./runner.js";
+export { executeTask, taskEvents } from "./runner.js";
 export type {
     BackgroundTask,
     TaskRegistryEntry,
@@ -13,9 +13,10 @@ export type {
     TaskType,
     TaskRun,
     TaskSchedule,
-    TaskApproval,
     TaskPlan,
     TaskPhase,
     TaskMemory,
+    TaskComment,
+    AutoPauseConfig,
 } from "./types.js";
-export { canTransition, emptyMemory, parseInterval } from "./types.js";
+export { canTransition, emptyMemory, parseInterval, DEFAULT_AUTO_PAUSE } from "./types.js";

@@ -3,6 +3,8 @@
  *
  * Builds the system prompt and memory section injected into
  * background task execution calls.
+ *
+ * Task Streams model: steering comments replace approval feedback.
  */
 
 import type { BackgroundTask } from "../types.js";
@@ -55,14 +57,30 @@ export function buildMemorySection(task: BackgroundTask): string {
     if (task.memory.sources.length > 0) {
         parts.push(`### Known Sources\n${task.memory.sources.slice(-10).map(s => `- ${s}`).join("\n")}`);
     }
-    if (task.memory.decisions.length > 0) {
-        parts.push(`### User Decisions & Corrections\n⚠️ CRITICAL — The user has provided the following corrections. You MUST follow these:\n${task.memory.decisions.slice(-5).map(d => `- **${d}**`).join("\n")}`);
+
+    // Steering comments — the main feedback mechanism
+    const pendingComments = task.memory.comments.filter(c => !c.appliedToRun);
+    const recentComments = task.memory.comments.slice(-5);
+
+    if (pendingComments.length > 0) {
+        parts.push(
+            `### ⚠️ User Steering (MUST FOLLOW)\n` +
+            `The user posted these comments to guide your work. You MUST incorporate them:\n` +
+            pendingComments.map(c => `- **"${c.text}"**`).join("\n")
+        );
+    } else if (recentComments.length > 0) {
+        parts.push(
+            `### Recent User Feedback\n` +
+            recentComments.map(c => `- "${c.text}" (${c.appliedToRun ? `applied in run #${c.appliedToRun}` : "pending"})`).join("\n")
+        );
     }
-    if (task.memory.feedback.length > 0) {
-        const recent = task.memory.feedback.slice(-3);
-        parts.push(`### Recent Feedback\n${recent.map(f =>
-            `- Run ${f.runId.slice(0, 8)}: ${f.approved ? "✓ approved" : "✗ rejected"}${f.notes ? ` — "${f.notes}"` : ""}`
-        ).join("\n")}`);
+
+    // Legacy decisions (still useful for backward compat)
+    const uniqueDecisions = task.memory.decisions.filter(d =>
+        !task.memory.comments.some(c => c.text === d)
+    );
+    if (uniqueDecisions.length > 0) {
+        parts.push(`### User Decisions\n${uniqueDecisions.slice(-5).map(d => `- **${d}**`).join("\n")}`);
     }
 
     if (parts.length === 0) return "";

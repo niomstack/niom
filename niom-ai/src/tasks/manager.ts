@@ -1,10 +1,17 @@
 /**
  * TaskManager — singleton that manages the lifecycle of background tasks.
  *
- * Now backed by MemoryStore for all persistence. Responsibilities:
+ * Task Streams model:
+ *   - 4 states: running, flowing, paused, done
+ *   - No approval gates — tasks just flow
+ *   - User steers via inline comments
+ *   - Auto-pause on idle (configurable per task)
+ *
+ * Responsibilities:
  *   1. CRUD operations (create, read, update, delete)
- *   2. State transitions (pause, resume, cancel, complete, fail)
- *   3. Scheduler loop (30s tick, checks nextRunAt, triggers runs)
+ *   2. State transitions (run, flow, pause, done)
+ *   3. Scheduler loop (30s tick, checks nextRunAt + auto-pause)
+ *   4. Steering (accept user comments, inject into next run)
  *
  * Tasks are encrypted at rest via MemoryStore at ~/.niom/memory/tasks/.
  * Runs are encrypted at ~/.niom/memory/runs/{taskId}/.
@@ -19,13 +26,14 @@ import type {
     TaskType,
     TaskRun,
     TaskSchedule,
-    TaskApproval,
     TaskPlan,
+    AutoPauseConfig,
 } from "./types.js";
 import {
     canTransition,
     emptyMemory,
     parseInterval,
+    DEFAULT_AUTO_PAUSE,
 } from "./types.js";
 
 // ── Constants ──
@@ -46,6 +54,7 @@ function toIndexEntry(task: BackgroundTask): TaskEntry {
         goal: task.goal,
         taskType: task.taskType,
         status: task.status,
+        threadId: task.threadId,
         nextRunAt: task.schedule?.nextRunAt,
         lastRunAt: task.lastRunAt,
         totalRuns: task.totalRuns,
@@ -149,6 +158,7 @@ export class TaskManager {
 
     /**
      * Create a new background task.
+     * Tasks start in "flowing" state (ready to run immediately or on schedule).
      */
     createTask(
         goal: string,
@@ -156,7 +166,7 @@ export class TaskManager {
         plan: TaskPlan,
         options: {
             schedule?: { interval: string; maxRuns?: number };
-            approval?: Partial<TaskApproval>;
+            autoPause?: Partial<AutoPauseConfig>;
             threadId?: string;
         } = {},
     ): BackgroundTask {
@@ -175,31 +185,31 @@ export class TaskManager {
             schedule = {
                 interval: options.schedule.interval,
                 intervalMs,
-                nextRunAt: now + intervalMs,
+                nextRunAt: now, // Run immediately on first creation
                 runCount: 0,
                 maxRuns: options.schedule.maxRuns,
             };
         }
 
-        // Build approval config
-        const approval: TaskApproval = {
-            mode: options.approval?.mode ?? (taskType === "recurring" ? "first_n" : "always"),
-            firstN: options.approval?.firstN ?? 3,
-            approvedRuns: 0,
+        // Auto-pause config (user-customizable per task)
+        const autoPause: AutoPauseConfig = {
+            ...DEFAULT_AUTO_PAUSE,
+            ...options.autoPause,
         };
 
         const task: BackgroundTask = {
             id,
             goal,
             taskType,
-            status: "draft",
+            status: "flowing", // Start in flowing state — ready to execute
             plan,
             schedule,
-            approval,
+            autoPause,
             memory: emptyMemory(),
             threadId: options.threadId,
             createdAt: now,
             updatedAt: now,
+            lastInteractionAt: now,
             totalRuns: 0,
             successfulRuns: 0,
         };
@@ -215,7 +225,7 @@ export class TaskManager {
     }
 
     /** List all tasks (from index — lightweight) */
-    listTasks(filter?: { status?: TaskStatus; taskType?: TaskType }): TaskRegistryEntry[] {
+    listTasks(filter?: { status?: TaskStatus; taskType?: TaskType; threadId?: string }): TaskRegistryEntry[] {
         let entries = this.store().list("tasks") as TaskRegistryEntry[];
 
         if (filter?.status) {
@@ -224,6 +234,9 @@ export class TaskManager {
         if (filter?.taskType) {
             entries = entries.filter(e => e.taskType === filter.taskType);
         }
+        if (filter?.threadId) {
+            entries = entries.filter(e => e.threadId === filter.threadId);
+        }
 
         return entries.sort((a, b) => b.updatedAt - a.updatedAt);
     }
@@ -231,7 +244,7 @@ export class TaskManager {
     /** Update a task's mutable fields */
     updateTask(
         taskId: string,
-        updates: Partial<Pick<BackgroundTask, "goal" | "plan" | "schedule" | "approval" | "memory" | "outputDir">>,
+        updates: Partial<Pick<BackgroundTask, "goal" | "plan" | "schedule" | "autoPause" | "memory" | "outputDir">>,
     ): BackgroundTask | null {
         const task = this.loadTask(taskId);
         if (!task) return null;
@@ -291,46 +304,85 @@ export class TaskManager {
         return task;
     }
 
-    /** Convenience: pause a task */
+    /** Pause a task */
     pause(taskId: string): BackgroundTask | null {
         return this.transitionTo(taskId, "paused");
     }
 
-    /** Convenience: resume a paused task */
+    /** Resume a paused task → flowing (will run on next schedule tick or immediately) */
     resume(taskId: string): BackgroundTask | null {
         const task = this.loadTask(taskId);
         if (!task) return null;
 
+        task.lastInteractionAt = Date.now();
+
         if (task.schedule) {
             task.schedule.nextRunAt = Date.now() + task.schedule.intervalMs;
             this.saveTask(task);
-            return this.transitionTo(taskId, "scheduled");
-        } else {
-            return this.transitionTo(taskId, "running");
         }
+
+        return this.transitionTo(taskId, "flowing");
     }
 
-    /** Convenience: cancel a task */
-    cancel(taskId: string): BackgroundTask | null {
-        return this.transitionTo(taskId, "cancelled");
-    }
-
-    /** Start a task */
+    /** Start a task — trigger immediate run */
     start(taskId: string): BackgroundTask | null {
         const task = this.loadTask(taskId);
         if (!task) return null;
 
-        if (task.schedule && task.status !== "running") {
-            task.schedule.nextRunAt = Date.now();
+        task.lastInteractionAt = Date.now();
+
+        if (task.schedule) {
+            task.schedule.nextRunAt = Date.now(); // Run now
             this.saveTask(task);
-            return this.transitionTo(taskId, "scheduled");
-        } else {
-            return this.transitionTo(taskId, "running");
         }
+
+        return this.transitionTo(taskId, "flowing");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // STEERING — User comments that influence future runs
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Add a steering comment to a task.
+     * Comments flow into the next run's system prompt as context.
+     */
+    steer(taskId: string, comment: string): BackgroundTask | null {
+        const task = this.loadTask(taskId);
+        if (!task) return null;
+
+        task.memory.comments.push({
+            text: comment,
+            timestamp: Date.now(),
+        });
+
+        // Also add to decisions for backward compat with prompt building
+        task.memory.decisions.push(comment);
+
+        task.lastInteractionAt = Date.now();
+        task.updatedAt = Date.now();
+        this.saveTask(task);
+
+        console.log(`[tasks] ${taskId.slice(0, 8)}: steered — "${comment.slice(0, 60)}"`);
+        return task;
     }
 
     /**
+     * Add a steering comment AND trigger an immediate re-run.
+     * For one-shot tasks where the user wants to correct the output.
+     */
+    steerAndRun(taskId: string, comment: string): Promise<TaskRun | null> {
+        this.steer(taskId, comment);
+        return this.triggerRun(taskId);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // RUN RECORDING
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
      * Record a completed run and handle state transitions.
+     * No approval gates — just record, update stats, and schedule next run.
      */
     recordRun(taskId: string, run: TaskRun): BackgroundTask | null {
         const task = this.loadTask(taskId);
@@ -348,20 +400,26 @@ export class TaskManager {
             task.successfulRuns++;
         }
 
-        // Handle state transitions based on run status
-        if (run.status === "pending_approval") {
-            // Task is paused — don't change schedule
-        } else if (task.schedule) {
+        // Mark any pending comments as applied to this run
+        for (const comment of task.memory.comments) {
+            if (!comment.appliedToRun) {
+                comment.appliedToRun = run.runNumber;
+            }
+        }
+
+        // Handle state transitions — no approval gate, just flow
+        if (task.schedule) {
             task.schedule.runCount++;
             if (task.schedule.maxRuns && task.schedule.runCount >= task.schedule.maxRuns) {
-                task.status = "completed";
+                task.status = "done";
                 console.log(`[tasks] ${taskId.slice(0, 8)}: max runs reached (${task.schedule.runCount}/${task.schedule.maxRuns})`);
             } else {
                 task.schedule.nextRunAt = Date.now() + task.schedule.intervalMs;
-                task.status = "scheduled";
+                task.status = "flowing";
             }
         } else {
-            task.status = run.status === "completed" ? "completed" : "failed";
+            // One-shot tasks → done after first successful run, flowing on failure
+            task.status = run.status === "completed" ? "done" : "flowing";
         }
 
         this.runningTasks.delete(taskId);
@@ -396,9 +454,25 @@ export class TaskManager {
         const now = Date.now();
         const entries = this.store().list("tasks");
         let triggered = 0;
+        let autoPaused = 0;
 
         for (const entry of entries) {
-            if (entry.status !== "scheduled") continue;
+            // Auto-pause check: idle too long → pause
+            if (entry.status === "flowing") {
+                const task = this.loadTask(entry.id);
+                if (task && task.autoPause.enabled) {
+                    const lastActivity = task.lastInteractionAt ?? task.lastRunAt ?? task.createdAt;
+                    if (now - lastActivity > task.autoPause.idleTimeoutMs) {
+                        this.transitionTo(entry.id, "paused");
+                        autoPaused++;
+                        console.log(`[tasks] ${entry.id.slice(0, 8)}: auto-paused (idle ${Math.round((now - lastActivity) / 86400000)}d)`);
+                        continue;
+                    }
+                }
+            }
+
+            // Schedule check: time to run?
+            if (entry.status !== "flowing") continue;
             if (!entry.nextRunAt || entry.nextRunAt > now) continue;
             if (this.runningTasks.has(entry.id)) continue;
 
@@ -408,8 +482,8 @@ export class TaskManager {
             });
         }
 
-        if (triggered > 0) {
-            console.log(`[tasks] Scheduler tick: triggered ${triggered} task(s)`);
+        if (triggered > 0 || autoPaused > 0) {
+            console.log(`[tasks] Scheduler tick: triggered ${triggered}, auto-paused ${autoPaused}`);
         }
     }
 
@@ -476,7 +550,7 @@ export class TaskManager {
         const now = Date.now();
         const entries = this.store().list("tasks");
         return (entries as TaskRegistryEntry[]).filter(
-            e => e.status === "scheduled" && e.nextRunAt && e.nextRunAt <= now
+            e => e.status === "flowing" && e.nextRunAt && e.nextRunAt <= now
         );
     }
 }

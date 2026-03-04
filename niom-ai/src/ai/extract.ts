@@ -25,9 +25,9 @@ export async function extractFactsFromConversation(
     // Skip short conversations (< 4 messages — likely just a quick question)
     if (messages.length < 4) return;
 
-    // Skip if no gateway key configured
+    // Skip if no API key configured for active provider
     const config = loadConfig();
-    if (!config.gateway_key) return;
+    if (!config.provider_keys?.[config.provider]) return;
 
     const store = MemoryStore.getInstance();
     const existingFacts = store.getBrain().facts;
@@ -39,7 +39,7 @@ export async function extractFactsFromConversation(
         .join("\n\n");
 
     try {
-        const model = getModelForRole("fast", config);
+        const model = getModelForRole("extraction", config);
 
         const result = await generateText({
             model,

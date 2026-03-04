@@ -1,12 +1,15 @@
 /**
- * TasksView — Global task management panel.
+ * TasksView — Global task management panel (Task Streams model).
  *
- * Uses Item components for consistent HUD styling and
- * Accordion for expandable task detail / run history.
+ * Timeline-based UI:
+ *   - Runs and user comments are interleaved in a timeline
+ *   - Inline comment input for steering (replaces approve/reject)
+ *   - Pause/resume toggle + Run Now button
+ *   - No approval gates
  */
 
-import { useState } from "react";
-import { ArrowLeft, Play, Pause, Zap, Trash2, X } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { ArrowLeft, Play, Pause, Zap, Trash2, MessageCircle, Send } from "lucide-react";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipTrigger, TooltipContent } from "../ui/tooltip";
 import { ScrollArea } from "../ui/scroll-area";
@@ -36,32 +39,42 @@ import {
     formatRelativeTime,
     formatFutureTime,
     formatDuration,
+    type TaskComment,
+    type TaskRun,
 } from "../tasks/task-types";
+import { useArtifacts } from "../../hooks/useArtifacts";
+import { ArtifactsList } from "../ArtifactsList";
 
 // ── Component ──
 
 interface TasksViewProps {
     onBack: () => void;
+    initialTaskId?: string | null;
 }
 
-export function TasksView({ onBack }: TasksViewProps) {
+export function TasksView({ onBack, initialTaskId }: TasksViewProps) {
     const {
         activeTasks,
-        completedTasks,
+        doneTasks,
         loading,
         selectedTaskId,
         setSelectedTaskId,
         taskDetail,
         taskRuns,
         actionLoading,
+        liveToolStatus,
         handleAction,
         handleDelete,
-        handleApprove,
+        handleSteer,
         handleUpdate,
-    } = useTasks();
+    } = useTasks(initialTaskId || undefined);
 
     const [expandedToolIds, setExpandedToolIds] = useState<Set<string>>(new Set());
-    const [approvalNotes, setApprovalNotes] = useState("");
+    const [steerComment, setSteerComment] = useState("");
+    const timelineEndRef = useRef<HTMLDivElement>(null);
+
+    // Artifacts for the selected task
+    const { artifacts: taskArtifacts, refresh: refreshArtifacts } = useArtifacts("task", selectedTaskId || undefined);
 
     // Editing state
     const [editing, setEditing] = useState<string | null>(null);
@@ -74,6 +87,11 @@ export function TasksView({ onBack }: TasksViewProps) {
             return next;
         });
     };
+
+    // Auto-scroll to bottom of timeline when runs change
+    useEffect(() => {
+        timelineEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [taskRuns.length]);
 
     // ── Loading state ──
     if (loading) {
@@ -92,8 +110,10 @@ export function TasksView({ onBack }: TasksViewProps) {
 
     // ── Detail View ──
     if (selectedTaskId && taskDetail) {
-        const cfg = STATUS_CONFIG[taskDetail.status] || STATUS_CONFIG.draft;
-        const isGraduated = taskDetail.approval.mode === "first_n" && taskDetail.approval.approvedRuns >= taskDetail.approval.firstN;
+        const cfg = STATUS_CONFIG[taskDetail.status] || STATUS_CONFIG.flowing;
+
+        // Build timeline: interleave runs and comments chronologically
+        const timeline = buildTimeline(taskRuns, taskDetail.memory.comments || []);
 
         return (
             <div className="flex flex-col h-full overflow-hidden">
@@ -156,10 +176,10 @@ export function TasksView({ onBack }: TasksViewProps) {
                                 <span>Last: {formatRelativeTime(taskDetail.lastRunAt)}</span>
                             </>
                         )}
-                        {isGraduated && (
+                        {taskDetail.autoPause?.enabled && (
                             <>
                                 <span>·</span>
-                                <span className="text-emerald-600">🎓 Auto-approved</span>
+                                <span className="text-text-muted">Auto-pause: {Math.round(taskDetail.autoPause.idleTimeoutMs / 86400000)}d</span>
                             </>
                         )}
                     </div>
@@ -170,7 +190,7 @@ export function TasksView({ onBack }: TasksViewProps) {
                             <span>Every {taskDetail.schedule.interval}</span>
                             <span>·</span>
                             <span>Runs: {taskDetail.schedule.runCount}{taskDetail.schedule.maxRuns ? `/${taskDetail.schedule.maxRuns}` : "/∞"}</span>
-                            {taskDetail.status === "scheduled" && (
+                            {taskDetail.status === "flowing" && taskDetail.schedule.nextRunAt && (
                                 <>
                                     <span>·</span>
                                     <span className="text-accent">Next: {formatFutureTime(taskDetail.schedule.nextRunAt)}</span>
@@ -181,7 +201,7 @@ export function TasksView({ onBack }: TasksViewProps) {
 
                     {/* Controls */}
                     <div className="flex items-center gap-2">
-                        {(taskDetail.status === "running" || taskDetail.status === "scheduled") && (
+                        {(taskDetail.status === "running" || taskDetail.status === "flowing") && (
                             <Tooltip>
                                 <TooltipTrigger asChild>
                                     <Button variant="ghost" size="icon-sm" onClick={() => handleAction(taskDetail.id, "pause")} disabled={actionLoading === `${taskDetail.id}:pause`} className="hover:bg-amber-600/10 hover:text-amber-600">
@@ -201,17 +221,7 @@ export function TasksView({ onBack }: TasksViewProps) {
                                 <TooltipContent side="top">Resume</TooltipContent>
                             </Tooltip>
                         )}
-                        {(taskDetail.status === "draft" || taskDetail.status === "planned") && (
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Button variant="ghost" size="icon-sm" onClick={() => handleAction(taskDetail.id, "start")} disabled={actionLoading === `${taskDetail.id}:start`} className="hover:bg-emerald-400/10 hover:text-emerald-400">
-                                        <Play className="w-3.5 h-3.5" />
-                                    </Button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top">Start</TooltipContent>
-                            </Tooltip>
-                        )}
-                        {!["running", "completed", "cancelled"].includes(taskDetail.status) && (
+                        {taskDetail.status !== "running" && taskDetail.status !== "done" && (
                             <Tooltip>
                                 <TooltipTrigger asChild>
                                     <Button variant="ghost" size="icon-sm" onClick={() => handleAction(taskDetail.id, "run")} disabled={actionLoading === `${taskDetail.id}:run`} className="hover:bg-accent/10 hover:text-accent">
@@ -219,16 +229,6 @@ export function TasksView({ onBack }: TasksViewProps) {
                                     </Button>
                                 </TooltipTrigger>
                                 <TooltipContent side="top">Run Now</TooltipContent>
-                            </Tooltip>
-                        )}
-                        {!["completed", "cancelled"].includes(taskDetail.status) && (
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Button variant="ghost" size="icon-sm" onClick={() => handleAction(taskDetail.id, "cancel")} disabled={actionLoading === `${taskDetail.id}:cancel`} className="hover:bg-red-600/10 hover:text-red-600">
-                                        <X className="w-3.5 h-3.5" />
-                                    </Button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top">Cancel</TooltipContent>
                             </Tooltip>
                         )}
                         <Tooltip>
@@ -242,10 +242,10 @@ export function TasksView({ onBack }: TasksViewProps) {
                     </div>
                 </div>
 
-                {/* Scrollable: Plan, Memory, Runs */}
+                {/* Scrollable: Plan, Memory, Timeline */}
                 <ScrollArea className="flex-1 min-h-0">
                     <div className="px-5 py-4">
-                        <Accordion type="multiple" defaultValue={["runs"]}>
+                        <Accordion type="multiple" defaultValue={["timeline"]}>
                             {/* Plan Phases */}
                             {taskDetail.plan.phases.length > 0 && (
                                 <AccordionItem value="plan">
@@ -297,152 +297,212 @@ export function TasksView({ onBack }: TasksViewProps) {
                                 </AccordionItem>
                             )}
 
-                            {/* Run History */}
-                            <AccordionItem value="runs">
+                            {/* Timeline — runs interleaved with user comments */}
+                            <AccordionItem value="timeline">
                                 <AccordionTrigger>
-                                    <span>Run History · {taskRuns.length} runs</span>
+                                    <span>Timeline · {timeline.length} events</span>
                                 </AccordionTrigger>
                                 <AccordionContent>
-                                    {taskRuns.length === 0 ? (
-                                        <div className="text-[11px] text-text-muted py-2 font-mono">No runs yet</div>
+                                    {timeline.length === 0 ? (
+                                        <div className="text-[11px] text-text-muted py-2 font-mono">No activity yet</div>
                                     ) : (
-                                        <Accordion type="single" collapsible>
-                                            {taskRuns.map(run => {
-                                                const runCfg = STATUS_CONFIG[run.status] || STATUS_CONFIG.draft;
-                                                const needsApproval = run.status === "pending_approval";
-                                                return (
-                                                    <AccordionItem key={run.id} value={run.id}>
-                                                        <AccordionTrigger className="py-2 text-[10px]">
-                                                            <div className="flex items-center gap-2 flex-1">
-                                                                <span className="text-[11px]">{needsApproval ? "⏳" : runCfg.icon}</span>
-                                                                <span className="font-mono font-medium text-text-primary">Run #{run.runNumber}</span>
-                                                                {run.durationMs != null && (
-                                                                    <span className="text-text-muted font-normal">{formatDuration(run.durationMs)}</span>
-                                                                )}
-                                                                {run.toolCalls && run.toolCalls.length > 0 && (
-                                                                    <span className="text-text-muted font-normal">{run.toolCalls.length} tools</span>
-                                                                )}
-                                                                <span className="flex-1" />
-                                                                {run.evaluation && (
-                                                                    <span className={cn("font-mono", run.evaluation.satisfied ? "text-emerald-600" : "text-amber-600")}>
-                                                                        {(run.evaluation.qualityScore * 100).toFixed(0)}%
-                                                                    </span>
-                                                                )}
-                                                                <span className={cn(needsApproval ? "text-amber-600" : runCfg.color, "font-normal")}>
-                                                                    {needsApproval ? "Awaiting approval" : runCfg.label}
-                                                                </span>
+                                        <div className="flex flex-col gap-2">
+                                            {timeline.map((item, idx) => {
+                                                if (item.type === "comment") {
+                                                    return (
+                                                        <div key={`comment-${idx}`} className="flex items-start gap-2 ml-2 py-1.5">
+                                                            <MessageCircle className="w-3.5 h-3.5 text-accent mt-0.5 shrink-0" />
+                                                            <div className="flex-1 min-w-0">
+                                                                <div className="text-[11px] text-accent font-medium">
+                                                                    "{item.comment.text}"
+                                                                </div>
+                                                                <div className="text-[9px] text-text-muted font-mono mt-0.5">
+                                                                    {formatRelativeTime(item.comment.timestamp)}
+                                                                    {item.comment.appliedToRun && ` · applied in run #${item.comment.appliedToRun}`}
+                                                                </div>
                                                             </div>
-                                                        </AccordionTrigger>
-                                                        <AccordionContent>
-                                                            {/* Error */}
-                                                            {run.error && (
-                                                                <div className="flex items-center gap-2 mb-2">
-                                                                    <span className="text-[10px] font-mono font-semibold uppercase tracking-wide text-red-600 bg-red-600/10 px-2 py-0.5">Error</span>
-                                                                    <span className="text-[11px] text-red-600/80 font-mono">{run.error}</span>
-                                                                </div>
-                                                            )}
+                                                        </div>
+                                                    );
+                                                }
 
-                                                            {/* Tool calls */}
-                                                            {run.toolCalls && run.toolCalls.length > 0 && (
-                                                                <div className="flex flex-col gap-0.5 mb-2">
-                                                                    {run.toolCalls.map((tc, i) => {
-                                                                        const tcId = `${run.id}-tc-${i}`;
-                                                                        const toolCall: ToolCall = {
-                                                                            id: tcId,
-                                                                            toolName: tc.tool,
-                                                                            input: tc.input,
-                                                                            output: tc.output,
-                                                                            status: "complete",
-                                                                        };
-                                                                        return (
-                                                                            <ToolCallRow
-                                                                                key={tcId}
-                                                                                tc={toolCall}
-                                                                                isExpanded={expandedToolIds.has(tcId)}
-                                                                                onToggle={() => toggleToolExpand(tcId)}
-                                                                            />
-                                                                        );
-                                                                    })}
-                                                                </div>
-                                                            )}
-
-                                                            {/* Thinking */}
-                                                            {run.status === "running" && !run.output && (
-                                                                <div className="flex items-center gap-2 py-1">
-                                                                    <ThinkingDots />
-                                                                    <span className="text-[11px] text-text-muted animate-pulse font-mono">Working…</span>
-                                                                </div>
-                                                            )}
-
-                                                            {/* Output */}
-                                                            {run.output && (
-                                                                <div className="text-text-secondary text-[12px]">
-                                                                    <Markdown content={run.output} />
-                                                                </div>
-                                                            )}
-
-                                                            {/* Evaluation */}
-                                                            {run.evaluation && (
-                                                                <div className="flex items-center gap-2 mt-2 text-[10px] font-mono">
-                                                                    <span>{run.evaluation.satisfied ? "✅" : "⚠️"}</span>
-                                                                    <span className={run.evaluation.qualityScore >= 0.8 ? "text-emerald-600" : run.evaluation.qualityScore >= 0.5 ? "text-amber-600" : "text-red-600"}>
-                                                                        {(run.evaluation.qualityScore * 100).toFixed(0)}% quality
-                                                                    </span>
-                                                                    {run.evaluation.issues.length > 0 && (
-                                                                        <span className="text-text-muted">· {run.evaluation.issues.length} issue{run.evaluation.issues.length > 1 ? "s" : ""}</span>
+                                                // Run item
+                                                const run = item.run;
+                                                const runCfg = STATUS_CONFIG[run.status] || STATUS_CONFIG.completed;
+                                                return (
+                                                    <Accordion key={run.id} type="single" collapsible defaultValue={run.status === "running" ? run.id : undefined}>
+                                                        <AccordionItem value={run.id}>
+                                                            <AccordionTrigger className="py-2 text-[10px]">
+                                                                <div className="flex items-center gap-2 flex-1">
+                                                                    <span className="text-[11px]">{runCfg.icon}</span>
+                                                                    <span className="font-mono font-medium text-text-primary">Run #{run.runNumber}</span>
+                                                                    {run.durationMs != null && (
+                                                                        <span className="text-text-muted font-normal">{formatDuration(run.durationMs)}</span>
                                                                     )}
+                                                                    {run.toolCalls && run.toolCalls.length > 0 && (
+                                                                        <span className="text-text-muted font-normal">{run.toolCalls.length} tools</span>
+                                                                    )}
+                                                                    <span className="flex-1" />
+                                                                    {run.evaluation && (
+                                                                        <span className={cn("font-mono", run.evaluation.satisfied ? "text-emerald-600" : "text-amber-600")}>
+                                                                            {(run.evaluation.qualityScore * 100).toFixed(0)}%
+                                                                        </span>
+                                                                    )}
+                                                                    <span className={cn(runCfg.color, "font-normal")}>
+                                                                        {runCfg.label}
+                                                                    </span>
                                                                 </div>
-                                                            )}
-
-                                                            {/* Approval — prominent buttons */}
-                                                            {needsApproval && (
-                                                                <div className="mt-4 pt-3 border-t border-border-subtle/50 space-y-3">
-                                                                    <input
-                                                                        className="w-full bg-surface-card border border-border-subtle px-3 py-2 text-[11px] text-text-primary outline-none focus:border-accent/40 font-mono"
-                                                                        placeholder="Notes (optional) — informs future runs…"
-                                                                        value={approvalNotes}
-                                                                        onChange={e => setApprovalNotes(e.target.value)}
-                                                                        onClick={e => e.stopPropagation()}
-                                                                    />
-                                                                    <div className="flex items-center gap-3">
-                                                                        <Button
-                                                                            variant="default"
-                                                                            size="sm"
-                                                                            onClick={() => { handleApprove(taskDetail.id, run.id, true, approvalNotes); setApprovalNotes(""); }}
-                                                                            disabled={actionLoading === `${taskDetail.id}:approve`}
-                                                                        >
-                                                                            <Play className="w-3.5 h-3.5" />
-                                                                            Approve
-                                                                        </Button>
-                                                                        <Button
-                                                                            variant="destructive"
-                                                                            size="sm"
-                                                                            onClick={() => { handleApprove(taskDetail.id, run.id, false, approvalNotes); setApprovalNotes(""); }}
-                                                                            disabled={actionLoading === `${taskDetail.id}:approve`}
-                                                                        >
-                                                                            <X className="w-3.5 h-3.5" />
-                                                                            Reject
-                                                                        </Button>
+                                                            </AccordionTrigger>
+                                                            <AccordionContent>
+                                                                {/* Error */}
+                                                                {run.error && (
+                                                                    <div className="flex items-center gap-2 mb-2">
+                                                                        <span className="text-[10px] font-mono font-semibold uppercase tracking-wide text-red-600 bg-red-600/10 px-2 py-0.5">Error</span>
+                                                                        <span className="text-[11px] text-red-600/80 font-mono">{run.error}</span>
                                                                     </div>
-                                                                </div>
-                                                            )}
-                                                        </AccordionContent>
-                                                    </AccordionItem>
+                                                                )}
+
+                                                                {/* Tool calls */}
+                                                                {run.toolCalls && run.toolCalls.length > 0 && (
+                                                                    <div className="flex flex-col gap-0.5 mb-2">
+                                                                        {run.toolCalls.map((tc, i) => {
+                                                                            const tcId = `${run.id}-tc-${i}`;
+                                                                            const toolCall: ToolCall = {
+                                                                                id: tcId,
+                                                                                toolName: tc.tool,
+                                                                                input: tc.input,
+                                                                                output: tc.output,
+                                                                                status: "complete",
+                                                                            };
+                                                                            return (
+                                                                                <ToolCallRow
+                                                                                    key={tcId}
+                                                                                    tc={toolCall}
+                                                                                    isExpanded={expandedToolIds.has(tcId)}
+                                                                                    onToggle={() => toggleToolExpand(tcId)}
+                                                                                />
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                )}
+
+                                                                {/* Live progress — shown during execution */}
+                                                                {run.status === "running" && (
+                                                                    <div className="flex items-center gap-2 py-1">
+                                                                        <ThinkingDots />
+                                                                        <span className="text-[11px] text-text-muted animate-pulse font-mono">
+                                                                            {taskDetail && liveToolStatus[taskDetail.id]
+                                                                                ? `Running: ${liveToolStatus[taskDetail.id]}`
+                                                                                : "Working…"}
+                                                                        </span>
+                                                                    </div>
+                                                                )}
+
+                                                                {/* Output */}
+                                                                {run.output && (
+                                                                    <div className="text-text-secondary text-[12px]">
+                                                                        <Markdown content={run.output} />
+                                                                    </div>
+                                                                )}
+
+                                                                {/* Evaluation */}
+                                                                {run.evaluation && (
+                                                                    <div className="flex items-center gap-2 mt-2 text-[10px] font-mono">
+                                                                        <span>{run.evaluation.satisfied ? "✅" : "⚠️"}</span>
+                                                                        <span className={run.evaluation.qualityScore >= 0.8 ? "text-emerald-600" : run.evaluation.qualityScore >= 0.5 ? "text-amber-600" : "text-red-600"}>
+                                                                            {(run.evaluation.qualityScore * 100).toFixed(0)}% quality
+                                                                        </span>
+                                                                        {run.evaluation.issues.length > 0 && (
+                                                                            <span className="text-text-muted">· {run.evaluation.issues.length} issue{run.evaluation.issues.length > 1 ? "s" : ""}</span>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+
+                                                                {/* Artifacts created during this run — shown once when task detail is selected */}
+                                                            </AccordionContent>
+                                                        </AccordionItem>
+                                                    </Accordion>
                                                 );
                                             })}
-                                        </Accordion>
+                                        </div>
                                     )}
+                                    <div ref={timelineEndRef} />
                                 </AccordionContent>
                             </AccordionItem>
                         </Accordion>
                     </div>
+
+                    {/* Task Artifacts */}
+                    {taskArtifacts.length > 0 && (
+                        <div className="px-5 py-3 border-t border-border-subtle/30">
+                            <ArtifactsList artifacts={taskArtifacts} onRefresh={refreshArtifacts} />
+                        </div>
+                    )}
                 </ScrollArea>
+
+                {/* Steering input — always visible at bottom */}
+                {taskDetail.status !== "done" && (
+                    <div className="px-5 py-3 border-t border-border-subtle/50 shrink-0">
+                        <div className="flex items-center gap-2">
+                            <MessageCircle className="w-4 h-4 text-text-muted shrink-0" />
+                            <input
+                                className="flex-1 bg-surface-card border border-border-subtle px-3 py-2 text-[11px] text-text-primary outline-none focus:border-accent/40 font-mono transition-colors"
+                                placeholder="Steer this task… e.g. 'Focus more on performance'"
+                                value={steerComment}
+                                onChange={e => setSteerComment(e.target.value)}
+                                onKeyDown={e => {
+                                    if (e.key === "Enter" && steerComment.trim()) {
+                                        handleSteer(taskDetail.id, steerComment.trim());
+                                        setSteerComment("");
+                                    }
+                                }}
+                            />
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon-sm"
+                                        onClick={() => {
+                                            if (steerComment.trim()) {
+                                                handleSteer(taskDetail.id, steerComment.trim());
+                                                setSteerComment("");
+                                            }
+                                        }}
+                                        disabled={!steerComment.trim() || actionLoading === `${taskDetail.id}:steer`}
+                                        className="hover:bg-accent/10 hover:text-accent"
+                                    >
+                                        <Send className="w-3.5 h-3.5" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top">Send feedback</TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon-sm"
+                                        onClick={() => {
+                                            if (steerComment.trim()) {
+                                                handleSteer(taskDetail.id, steerComment.trim(), true);
+                                                setSteerComment("");
+                                            }
+                                        }}
+                                        disabled={!steerComment.trim() || actionLoading === `${taskDetail.id}:steer`}
+                                        className="hover:bg-emerald-600/10 hover:text-emerald-600"
+                                    >
+                                        <Zap className="w-3.5 h-3.5" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top">Send & Run Now</TooltipContent>
+                            </Tooltip>
+                        </div>
+                    </div>
+                )}
             </div>
         );
     }
 
     // ── List View ──
-    const totalTasks = activeTasks.length + completedTasks.length;
+    const totalTasks = activeTasks.length + doneTasks.length;
 
     return (
         <div className="flex flex-col h-full">
@@ -461,7 +521,7 @@ export function TasksView({ onBack }: TasksViewProps) {
                                     No background tasks
                                 </p>
                                 <p className="text-[11px] text-text-tertiary max-w-[260px]">
-                                    Tasks are created automatically when NIOM detects long-running or recurring intent.
+                                    Tasks are created automatically when NIOM detects long-running or recurring intent. You can steer them anytime.
                                 </p>
                             </div>
                         </div>
@@ -488,14 +548,14 @@ export function TasksView({ onBack }: TasksViewProps) {
                             </div>
                         )}
 
-                        {/* Completed tasks */}
-                        {completedTasks.length > 0 && (
+                        {/* Done tasks */}
+                        {doneTasks.length > 0 && (
                             <div>
                                 <div className="text-[9px] font-mono font-semibold uppercase tracking-widest text-text-muted mb-2 px-1">
-                                    Completed · {completedTasks.length}
+                                    Done · {doneTasks.length}
                                 </div>
                                 <ItemGroup>
-                                    {completedTasks.slice(0, 10).map(task => (
+                                    {doneTasks.slice(0, 10).map(task => (
                                         <TaskItemRow
                                             key={task.id}
                                             task={task}
@@ -512,6 +572,27 @@ export function TasksView({ onBack }: TasksViewProps) {
             </ScrollArea>
         </div>
     );
+}
+
+// ── Timeline Builder ──
+
+type TimelineItem =
+    | { type: "run"; run: TaskRun; timestamp: number }
+    | { type: "comment"; comment: TaskComment; timestamp: number };
+
+function buildTimeline(runs: TaskRun[], comments: TaskComment[]): TimelineItem[] {
+    const items: TimelineItem[] = [];
+
+    for (const run of runs) {
+        items.push({ type: "run", run, timestamp: run.startedAt });
+    }
+    for (const comment of comments) {
+        items.push({ type: "comment", comment, timestamp: comment.timestamp });
+    }
+
+    // Sort chronologically
+    items.sort((a, b) => a.timestamp - b.timestamp);
+    return items;
 }
 
 // ── Sub-components ──
@@ -541,7 +622,7 @@ function TaskItemRow({ task, onClick, onAction, actionLoading }: {
     onAction: (action: string) => void;
     actionLoading: string | null;
 }) {
-    const cfg = STATUS_CONFIG[task.status] || STATUS_CONFIG.draft;
+    const cfg = STATUS_CONFIG[task.status] || STATUS_CONFIG.flowing;
     const isRunning = task.status === "running";
 
     return (
@@ -562,7 +643,7 @@ function TaskItemRow({ task, onClick, onAction, actionLoading }: {
                             <span>{task.totalRuns} runs</span>
                         </>
                     )}
-                    {task.nextRunAt && task.status === "scheduled" && (
+                    {task.nextRunAt && task.status === "flowing" && (
                         <>
                             <span>·</span>
                             <span className="text-accent">{formatFutureTime(task.nextRunAt)}</span>
@@ -573,7 +654,7 @@ function TaskItemRow({ task, onClick, onAction, actionLoading }: {
 
             {/* Quick actions — hover reveal */}
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
-                {(task.status === "running" || task.status === "scheduled") && (
+                {(task.status === "running" || task.status === "flowing") && (
                     <Tooltip>
                         <TooltipTrigger asChild>
                             <Button variant="ghost" size="icon-sm" onClick={() => onAction("pause")} disabled={actionLoading === `${task.id}:pause`} className="hover:bg-amber-600/10 hover:text-amber-600">
@@ -593,7 +674,7 @@ function TaskItemRow({ task, onClick, onAction, actionLoading }: {
                         <TooltipContent side="top">Resume</TooltipContent>
                     </Tooltip>
                 )}
-                {task.status !== "running" && !["completed", "cancelled"].includes(task.status) && (
+                {task.status !== "running" && task.status !== "done" && (
                     <Tooltip>
                         <TooltipTrigger asChild>
                             <Button variant="ghost" size="icon-sm" onClick={() => onAction("run")} disabled={actionLoading === `${task.id}:run`} className="hover:bg-accent/10 hover:text-accent">

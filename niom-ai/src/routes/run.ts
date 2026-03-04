@@ -3,7 +3,7 @@ import { streamText, createUIMessageStream, createUIMessageStreamResponse, stepC
 import { runAgent, getBaseSystemPrompt } from "../ai/agent.js";
 import { getModel } from "../ai/providers.js";
 import { getAllTools } from "../tools/index.js";
-import { buildAgentContext, formatContextPreamble, recordToolUse } from "../ai/context.js";
+import { buildAgentContext, formatContextPreamble, recordToolUse, flushToolUsageToSkillTree } from "../ai/context.js";
 import { loadConfig } from "../config.js";
 
 const run = new Hono();
@@ -24,9 +24,9 @@ run.post("/run", async (c) => {
         }
 
         const config = loadConfig();
-        if (!config.gateway_key) {
+        if (!config.provider_keys?.[config.provider]) {
             return c.json(
-                { error: "No AI Gateway key configured", message: "Add your gateway key in Settings" },
+                { error: "No API key configured", message: `Add your ${config.provider} API key in Settings` },
                 503
             );
         }
@@ -45,14 +45,25 @@ run.post("/run", async (c) => {
                     writer.write({ type: "reasoning-delta", id: "analyze", delta: "Analyzing intent..." });
                     writer.write({ type: "reasoning-end", id: "analyze" });
 
-                    // Run the engine (analyze → route → execute)
+                    // Run the engine (route → execute)
                     const result = await runAgent({
                         messages: body.messages,
+                        threadId: body.threadId,
                         context: body.context,
+                        onProgress: (status) => {
+                            // Emit status updates as reasoning events — the frontend
+                            // picks these up and shows them in the thinking indicator
+                            writer.write({ type: "reasoning-start", id: "progress" });
+                            writer.write({ type: "reasoning-delta", id: "progress", delta: status });
+                            writer.write({ type: "reasoning-end", id: "progress" });
+                        },
                     });
 
                     // Pipe the streamText result into our stream
                     writer.merge(result.toUIMessageStream());
+
+                    // Record tool usage for Skill Tree edge learning (fire-and-forget)
+                    flushToolUsageToSkillTree().catch(() => { });
                 },
                 onError: (error) => {
                     const msg = error instanceof Error ? error.message : String(error);
@@ -70,14 +81,14 @@ run.post("/run", async (c) => {
 });
 
 /**
- * POST /run/approve — Resume agent after tool approval.
+ * POST /run/confirm — Resume agent after tool confirmation.
  *
  * IMPORTANT: This does NOT re-analyze intent. It directly continues via
- * streamText with the full message history (which includes the approval
+ * streamText with the full message history (which includes the confirmation
  * response). Re-analyzing would create a fresh stream that doesn't know
  * about the original tool-approval-request IDs.
  */
-run.post("/run/approve", async (c) => {
+run.post("/run/confirm", async (c) => {
     try {
         const body = await c.req.json();
 
@@ -86,9 +97,9 @@ run.post("/run/approve", async (c) => {
         }
 
         const config = loadConfig();
-        if (!config.gateway_key) {
+        if (!config.provider_keys?.[config.provider]) {
             return c.json(
-                { error: "No AI Gateway key configured", message: "Add your gateway key in Settings" },
+                { error: "No API key configured", message: `Add your ${config.provider} API key in Settings` },
                 503
             );
         }
@@ -106,7 +117,7 @@ run.post("/run/approve", async (c) => {
         // Use the canonical base system prompt (shared with the agent engine)
         const systemPrompt = `${getBaseSystemPrompt()}
 
-You're continuing after a tool approval. Continue executing the task naturally.
+You're continuing after a tool confirmation. Continue executing the task naturally.
 
 ${contextPreamble}`;
 
@@ -132,10 +143,13 @@ ${contextPreamble}`;
                         },
                     });
                     writer.merge(result.toUIMessageStream());
+
+                    // Record tool usage for Skill Tree edge learning
+                    flushToolUsageToSkillTree().catch(() => { });
                 },
                 onError: (error) => {
                     const msg = error instanceof Error ? error.message : String(error);
-                    console.error("[run/approve] Stream error:", msg);
+                    console.error("[run/confirm] Stream error:", msg);
                     return msg;
                 },
             }),
@@ -143,8 +157,8 @@ ${contextPreamble}`;
 
         return response;
     } catch (err: any) {
-        console.error("[run/approve] Error:", err.message || err);
-        return c.json({ error: "Approval failed", message: err.message || String(err) }, 500);
+        console.error("[run/confirm] Error:", err.message || err);
+        return c.json({ error: "Confirmation failed", message: err.message || String(err) }, 500);
     }
 });
 
@@ -161,9 +175,9 @@ run.post("/run/sync", async (c) => {
         }
 
         const config = loadConfig();
-        if (!config.gateway_key) {
+        if (!config.provider_keys?.[config.provider]) {
             return c.json(
-                { error: "No AI Gateway key configured", message: "Add your gateway key in Settings" },
+                { error: "No API key configured", message: `Add your ${config.provider} API key in Settings` },
                 503
             );
         }

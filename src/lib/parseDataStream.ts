@@ -6,7 +6,7 @@
  * - onToolStart(toolCallId, toolName) — tool execution begins
  * - onToolInput(toolCallId, toolName, input) — full tool input available
  * - onToolOutput(toolCallId, output) — tool result available
- * - onToolApproval(approvalId, toolCallId, toolName, input) — tool needs user approval
+ * - onToolConfirmation(approvalId, toolCallId, toolName, input) — tool needs user confirmation
  * - onStepStart() — new agent step begins
  * - onStepFinish() — agent step complete
  * - onFinish() — message complete
@@ -18,7 +18,7 @@ export interface StreamHandlers {
     onToolStart?: (toolCallId: string, toolName: string) => void;
     onToolInput?: (toolCallId: string, toolName: string, input: any) => void;
     onToolOutput?: (toolCallId: string, output: any) => void;
-    onToolApproval?: (approvalId: string, toolCallId: string, toolName: string, input: any) => void;
+    onToolConfirmation?: (approvalId: string, toolCallId: string, toolName: string, input: any) => void;
     onReasoning?: (text: string) => void;
     onStepStart?: () => void;
     onStepFinish?: () => void;
@@ -131,7 +131,7 @@ function processEvent(
             break;
 
         case "tool-approval-request":
-            handlers.onToolApproval?.(
+            handlers.onToolConfirmation?.(
                 event.approvalId,
                 event.toolCall?.toolCallId || event.toolCallId,
                 event.toolCall?.toolName || event.toolName,

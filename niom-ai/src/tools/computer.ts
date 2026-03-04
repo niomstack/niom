@@ -29,7 +29,6 @@ import { writeFileSync, readFileSync, unlinkSync, existsSync, mkdirSync } from "
 import { join } from "path";
 import { tmpdir } from "os";
 import { getDataDir } from "../config.js";
-import { registerCapability } from "../ai/capabilities.js";
 
 // ── Screenshot Directory ──
 
@@ -504,31 +503,3 @@ function cleanupScreenshots(): void {
         }
     } catch { /* ignore */ }
 }
-
-// ── Capability Registration ──
-
-registerCapability({
-    id: "computer-use",
-    name: "Computer Use (Screen & GUI Control)",
-    category: "tools",
-    description: "You can SEE the screen and CONTROL the mouse and keyboard. You can interact with ANY application — browsers, desktop apps, system dialogs, etc. — by taking screenshots, clicking, typing, scrolling, and pressing keys.",
-    enabled: () => true,
-    instructions: `**Computer Use Protocol:**
-1. ALWAYS take a screenshot FIRST to see what's on screen before acting
-2. Analyze the screenshot to identify UI elements and their coordinates
-3. Click on the target element using its coordinates
-4. Take another screenshot to verify the action worked
-5. Repeat until the task is complete
-
-**Key Rules:**
-- Do NOT guess coordinates — always screenshot first
-- After every click/type action, screenshot again to verify the result
-- If coordinates are off, adjust and try again
-- For text input: click the field first, then type
-- Use key combos for shortcuts (Ctrl+C, Ctrl+V, Alt+Tab, etc.)`,
-    examples: [
-        '"Open Chrome and search for X" → screenshot, find Chrome, click it, screenshot, click address bar, type URL, press Enter',
-        '"Fill out this form" → screenshot, identify fields, click each one and type values',
-        '"Copy this data to a spreadsheet" → screenshot, select data, Ctrl+C, Alt+Tab, click cell, Ctrl+V',
-    ],
-});

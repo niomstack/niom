@@ -1,45 +1,36 @@
 /**
- * Background Task types — the data model for long-running, scheduled,
- * and one-shot background tasks in NIOM.
+ * Background Task types — Task Streams model.
  *
- * Tasks are created by the reasoning engine when the Analyze phase
- * detects a long-running or recurring intent. They persist across
- * sidecar restarts and can be paused, resumed, or cancelled.
+ * Philosophy: Tasks are living streams that flow autonomously.
+ * Users steer via inline comments, not approval gates.
+ *
+ * 4) states: running → flowing → paused → done
+ * No approval. No evaluate-refine. Just execute and let feedback improve next run.
  */
 
-// ── Task Status (State Machine) ──
+// ── Task Status (Simplified State Machine) ──
 //
-//                ┌──────────────────────────────────────┐
-//                │                                       │
-//     create     ↓                                       │
-//   ──────→  [draft]                                     │
-//               │                                        │
-//         approve                                        │
-//               │     ┌───── [scheduled] ←───── resume   │
-//               ↓     │          │                  ↑    │
-//           [planned]─┘     timer fires             │    │
-//               │               │                   │    │
-//          start│          ┌────↓────┐              │    │
-//               ↓          │         │              │    │
-//           [running] ←────┘    [paused] ←── pause  │    │
-//               │                   │               │    │
-//               ├── checkpoint ─────┤               │    │
-//               │                   │               │    │
-//               ├── complete ───→ [completed]        │    │
-//               │                                   │    │
-//               ├── error ──→ [failed] ─── retry ───┘    │
-//               │                                        │
-//               └── cancel ──→ [cancelled] ──────────────┘
+//     create
+//   ──────→  [running] ←─── run now / schedule fires
+//               │
+//               ├── complete ──→ [flowing] ←─── (recurring: idle between runs)
+//               │                   │
+//               │              schedule fires → [running]
+//               │                   │
+//               ├── error ─────→ [flowing] (retry on next schedule)
+//               │
+//               ├── pause ────→ [paused] ←─── auto-pause (idle timeout)
+//               │                   │
+//               │              resume → [running] or [flowing]
+//               │
+//               └── max runs ──→ [done]
+//                   or one-shot
 
 export type TaskStatus =
-    | "draft"       // Created but not yet approved/started
-    | "planned"     // Plan generated, awaiting start or approval
-    | "scheduled"   // Waiting for next run time
-    | "running"     // Currently executing
-    | "paused"      // Temporarily halted (user action)
-    | "completed"   // Finished successfully
-    | "failed"      // Last run failed
-    | "cancelled";  // User cancelled
+    | "running"     // Currently executing right now
+    | "flowing"     // Idle — waiting for next scheduled run, or one-shot just completed
+    | "paused"      // User paused, or auto-paused due to inactivity
+    | "done";       // One-shot completed, or recurring hit max runs
 
 export type TaskType =
     | "one_shot"    // Runs once in background, notifies when done
@@ -62,17 +53,6 @@ export interface TaskSchedule {
     maxRuns?: number;
 }
 
-// ── Task Approval ──
-
-export interface TaskApproval {
-    /** When to seek human approval for task output */
-    mode: "always" | "first_n" | "never";
-    /** For "first_n" mode: how many runs require approval before auto-executing */
-    firstN: number;
-    /** How many runs have been approved (for graduation tracking) */
-    approvedRuns: number;
-}
-
 // ── Task Plan ──
 
 export interface TaskPhase {
@@ -91,22 +71,42 @@ export interface TaskPlan {
 
 // ── Task Memory (persists across runs) ──
 
+export interface TaskComment {
+    /** The steering comment from the user */
+    text: string;
+    /** When the comment was posted */
+    timestamp: number;
+    /** Which run number incorporated this comment (set when next run starts) */
+    appliedToRun?: number;
+}
+
 export interface TaskMemory {
     /** Key learnings / facts discovered across runs */
     findings: string[];
     /** URLs, files, or sources referenced */
     sources: string[];
-    /** User decisions that inform future runs */
+    /** User decisions that inform future runs (legacy compat + steering) */
     decisions: string[];
     /** Output files created by this task */
     filesCreated: string[];
-    /** User feedback on past outputs */
-    feedback: Array<{
-        runId: string;
-        approved: boolean;
-        notes?: string;
-    }>;
+    /** User steering comments — replaces the old feedback/approval system */
+    comments: TaskComment[];
 }
+
+// ── Auto-Pause Config ──
+
+export interface AutoPauseConfig {
+    /** Whether auto-pause is enabled for this task */
+    enabled: boolean;
+    /** Idle timeout in milliseconds before auto-pausing (default: 7 days) */
+    idleTimeoutMs: number;
+}
+
+/** Default auto-pause: 7 days of no interaction */
+export const DEFAULT_AUTO_PAUSE: AutoPauseConfig = {
+    enabled: true,
+    idleTimeoutMs: 7 * 24 * 60 * 60 * 1000, // 7 days
+};
 
 // ── Task Run (execution log) ──
 
@@ -115,7 +115,7 @@ export interface TaskRun {
     taskId: string;
     /** Sequential run number (1, 2, 3...) */
     runNumber: number;
-    status: "running" | "completed" | "failed" | "pending_approval" | "rejected";
+    status: "running" | "completed" | "failed";
     startedAt: number;
     completedAt?: number;
     /** Duration in ms */
@@ -135,7 +135,7 @@ export interface TaskRun {
     output?: string;
     /** Error message if failed */
     error?: string;
-    /** Quality evaluation result */
+    /** Quality score (heuristic, not LLM-based) */
     evaluation?: {
         satisfied: boolean;
         qualityScore: number;
@@ -158,8 +158,8 @@ export interface BackgroundTask {
     /** Schedule config (for recurring tasks) */
     schedule?: TaskSchedule;
 
-    /** Approval settings */
-    approval: TaskApproval;
+    /** Auto-pause configuration (per-task, user can customize) */
+    autoPause: AutoPauseConfig;
 
     /** Persistent memory across runs */
     memory: TaskMemory;
@@ -171,6 +171,8 @@ export interface BackgroundTask {
     createdAt: number;
     updatedAt: number;
     lastRunAt?: number;
+    /** Last time the user interacted (steered, ran now, etc.) */
+    lastInteractionAt?: number;
 
     /** Directory for output files */
     outputDir?: string;
@@ -187,6 +189,7 @@ export interface TaskRegistryEntry {
     goal: string;
     taskType: TaskType;
     status: TaskStatus;
+    threadId?: string;
     nextRunAt?: number;
     lastRunAt?: number;
     totalRuns: number;
@@ -198,18 +201,15 @@ export interface TaskRegistryEntry {
 
 /** Valid transitions from each state */
 export const VALID_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
-    draft: ["planned", "scheduled", "running", "cancelled"],
-    planned: ["scheduled", "running", "cancelled"],
-    scheduled: ["running", "paused", "cancelled"],
-    running: ["completed", "failed", "paused", "cancelled"],
-    paused: ["scheduled", "running", "cancelled"],
-    completed: ["scheduled", "cancelled"], // recurring tasks go back to scheduled
-    failed: ["scheduled", "running", "cancelled"],
-    cancelled: [], // terminal state
+    running: ["flowing", "paused", "done"],
+    flowing: ["running", "paused", "done"],
+    paused: ["flowing", "running", "done"],
+    done: [],  // terminal state
 };
 
 /** Check if a status transition is valid */
 export function canTransition(from: TaskStatus, to: TaskStatus): boolean {
+    if (from === to) return true; // Self-transitions are no-ops — always valid
     return VALID_TRANSITIONS[from].includes(to);
 }
 
@@ -220,7 +220,7 @@ export function emptyMemory(): TaskMemory {
         sources: [],
         decisions: [],
         filesCreated: [],
-        feedback: [],
+        comments: [],
     };
 }
 

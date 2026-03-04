@@ -10,7 +10,7 @@ import type { Message, MessageMetadata, MessageType, Thread, ThreadStatus, Threa
 
 export type { Message, MessageMetadata, MessageType, Thread, ThreadStatus, ThreadSummary };
 
-const SIDECAR_URL = "http://localhost:3001";
+import { getSidecarUrl } from "../lib/useConfig";
 
 // ── Constants ──
 
@@ -20,7 +20,7 @@ const MAX_MESSAGES_PER_THREAD = 200;
 // ── Sidecar API ──
 
 async function fetchThreadSummaries(): Promise<Thread[]> {
-    const res = await fetch(`${SIDECAR_URL}/threads`);
+    const res = await fetch(`${getSidecarUrl()}/threads`);
     if (!res.ok) return [];
     const { threads: summaries } = await res.json();
     // Summaries from the index are lightweight — no need to fetch full threads
@@ -37,13 +37,13 @@ async function fetchThreadSummaries(): Promise<Thread[]> {
 }
 
 async function fetchFullThread(id: string): Promise<Thread | null> {
-    const r = await fetch(`${SIDECAR_URL}/threads/${id}`);
+    const r = await fetch(`${getSidecarUrl()}/threads/${id}`);
     if (!r.ok) return null;
     return r.json();
 }
 
 async function saveToServer(thread: Thread): Promise<void> {
-    await fetch(`${SIDECAR_URL}/threads/${thread.id}`, {
+    await fetch(`${getSidecarUrl()}/threads/${thread.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(thread),
@@ -51,11 +51,11 @@ async function saveToServer(thread: Thread): Promise<void> {
 }
 
 async function deleteFromServer(id: string): Promise<void> {
-    await fetch(`${SIDECAR_URL}/threads/${id}`, { method: "DELETE" });
+    await fetch(`${getSidecarUrl()}/threads/${id}`, { method: "DELETE" });
 }
 
 async function clearServer(): Promise<void> {
-    await fetch(`${SIDECAR_URL}/threads`, { method: "DELETE" });
+    await fetch(`${getSidecarUrl()}/threads`, { method: "DELETE" });
 }
 
 // ── Helpers ──
@@ -218,7 +218,7 @@ export function useThreads() {
 
         const summary = thread.messages.slice(-6).map(m => `${m.role}: ${m.content.slice(0, 100)}`).join("\n");
         try {
-            const res = await fetch(`${SIDECAR_URL}/run/sync`, {
+            const res = await fetch(`${getSidecarUrl()}/run/sync`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ messages: [{ role: "user", content: `Generate a short title (max 6 words, no quotes) for this conversation:\n${summary}` }] }),

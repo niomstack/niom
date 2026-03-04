@@ -38,6 +38,7 @@ export interface TaskEntry {
     goal: string;
     taskType: string;
     status: string;
+    threadId?: string;
     nextRunAt?: number;
     lastRunAt?: number;
     totalRuns: number;

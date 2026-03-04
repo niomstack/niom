@@ -98,6 +98,36 @@ export function formatToolCall(tc: ToolCall): { icon: string; label: string; des
                 description: input.detail === "full" ? "detailed" : "summary",
                 badge: null,
             };
+        case "deepResearch":
+            return {
+                icon: "🔬",
+                label: "Deep Research",
+                description: input.topic ? (input.topic.length > 50 ? input.topic.slice(0, 47) + "…" : input.topic) : "",
+                badge: output.sourcesRead != null
+                    ? `${output.sourcesRead}/${output.sourcesSearched || "?"} sources`
+                    : output.error ? "failed" : null,
+            };
+        case "notifyUser":
+            return {
+                icon: "🔔",
+                label: "Notified",
+                description: input.title || input.message?.slice(0, 50) || "",
+                badge: output.status === "sent" ? "sent" : output.error ? "failed" : null,
+            };
+        case "editFile":
+            return {
+                icon: "✂️",
+                label: "Edited",
+                description: shortPath(input.path || ""),
+                badge: output.replacements != null ? `${output.replacements} change${output.replacements !== 1 ? "s" : ""}` : output.error ? "failed" : null,
+            };
+        case "searchFiles":
+            return {
+                icon: "🔎",
+                label: "Searched files",
+                description: input.pattern || input.query || "",
+                badge: output.totalMatches != null ? `${output.totalMatches} matches` : output.error ? "failed" : null,
+            };
         default:
             return {
                 icon: "⚙️",
@@ -258,6 +288,78 @@ function renderToolDetails(tc: ToolCall): React.ReactNode {
                     {output.cpus != null && <DetailRow label="CPUs" value={String(output.cpus)} />}
                     {output.memory && <DetailRow label="Memory" value={output.memory} />}
                     {output.disk && <DetailRow label="Disk" value={output.disk} />}
+                </div>
+            );
+
+        case "deepResearch": {
+            const sources = output.sources || [];
+            const successSources = sources.filter((s: any) => s.readSuccess);
+            return (
+                <div className="flex flex-col gap-0.5">
+                    <DetailRow label="Topic" value={input.topic || ""} />
+                    <DetailRow label="Depth" value={input.depth || "thorough"} />
+                    {output.sourcesSearched != null && (
+                        <DetailRow label="Sources" value={`${output.sourcesRead || 0} read / ${output.sourcesSearched} found`} />
+                    )}
+                    {successSources.length > 0 && (
+                        <div className="mt-1 flex flex-col gap-1">
+                            {successSources.slice(0, 6).map((s: any, i: number) => (
+                                <div key={i} className="text-[9px] pl-1 border-l-2 border-accent/20">
+                                    <div className="text-text-secondary font-medium truncate">
+                                        [{i + 1}] {s.title}
+                                    </div>
+                                    {s.url && <div className="text-accent/60 font-mono truncate">{s.url}</div>}
+                                    {s.snippet && <div className="text-text-muted line-clamp-1">{s.snippet}</div>}
+                                </div>
+                            ))}
+                            {successSources.length > 6 && (
+                                <div className="text-[9px] text-text-muted pl-1">
+                                    ...and {successSources.length - 6} more sources
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    {output.error && <DetailRow label="Error" value={output.error} />}
+                </div>
+            );
+        }
+
+        case "notifyUser":
+            return (
+                <div className="flex flex-col gap-0.5">
+                    {input.title && <DetailRow label="Title" value={input.title} />}
+                    <DetailRow label="Message" value={input.message || input.body || ""} />
+                    {input.urgency && <DetailRow label="Urgency" value={input.urgency} />}
+                    {output.status && <DetailRow label="Status" value={output.status === "sent" ? "✓ Sent" : output.status} />}
+                    {output.error && <DetailRow label="Error" value={output.error} />}
+                </div>
+            );
+
+        case "editFile":
+            return (
+                <div className="flex flex-col gap-0.5">
+                    <DetailRow label="Path" value={shortPath(input.path || "")} mono />
+                    {input.find && <DetailRow label="Find" value={typeof input.find === "string" ? input.find.slice(0, 100) : ""} mono />}
+                    {output.replacements != null && <DetailRow label="Changes" value={`${output.replacements} replacement${output.replacements !== 1 ? "s" : ""}`} />}
+                    {output.error && <DetailRow label="Error" value={output.error} />}
+                </div>
+            );
+
+        case "searchFiles":
+            return (
+                <div className="flex flex-col gap-0.5">
+                    <DetailRow label="Pattern" value={input.pattern || input.query || ""} mono />
+                    {input.path && <DetailRow label="In" value={shortPath(input.path)} mono />}
+                    {output.totalMatches != null && <DetailRow label="Matches" value={`${output.totalMatches} in ${output.filesMatched || "?"} files`} />}
+                    {output.matches && Array.isArray(output.matches) && output.matches.length > 0 && (
+                        <div className="mt-1 text-[9px] text-text-muted font-mono pl-1 max-h-[80px] overflow-y-auto">
+                            {output.matches.slice(0, 8).map((m: any, i: number) => (
+                                <div key={i} className="truncate">{shortPath(m.file || m.path || "", 40)}:{m.line || ""}</div>
+                            ))}
+                            {output.matches.length > 8 && <div>...and {output.matches.length - 8} more</div>}
+                        </div>
+                    )}
+                    {output.error && <DetailRow label="Error" value={output.error} />}
                 </div>
             );
 

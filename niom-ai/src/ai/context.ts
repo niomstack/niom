@@ -29,6 +29,10 @@ export interface AgentContext {
     project?: ProjectInfo;
     /** Session-level memory: what the agent has done recently */
     session: SessionMemory;
+    /** Conversation thread ID (for artifact linking) */
+    threadId?: string;
+    /** Background task ID (for artifact linking) */
+    taskId?: string;
 }
 
 export interface ProjectInfo {
@@ -117,6 +121,9 @@ const session: SessionMemory = {
     startedAt: Date.now(),
 };
 
+/** Ordered sequence of tool names used this session (for edge weight learning) */
+const _toolSequence: string[] = [];
+
 export function recordFileRead(path: string): void {
     if (!session.filesRead.includes(path)) {
         session.filesRead.push(path);
@@ -133,6 +140,39 @@ export function recordFileWrite(path: string): void {
 
 export function recordToolUse(toolName: string): void {
     session.toolsUsed[toolName] = (session.toolsUsed[toolName] || 0) + 1;
+    // Track order for sequence-based learning
+    _toolSequence.push(toolName);
+}
+
+/**
+ * Get the ordered sequence of tools used this session.
+ * Used by the Skill Tree for co-occurrence edge learning.
+ */
+export function getToolSequence(): string[] {
+    return [..._toolSequence];
+}
+
+/**
+ * Flush tool usage to the Skill Tree for edge weight learning.
+ * Call this at the end of a conversation turn.
+ */
+export async function flushToolUsageToSkillTree(): Promise<void> {
+    if (_toolSequence.length < 2) return;
+
+    // Capture and reset before async work
+    const sequence = [..._toolSequence];
+    _toolSequence.length = 0;
+
+    try {
+        // Dynamic import to avoid circular dependency at module load time
+        const { SkillPathResolver } = await import("../skills/traversal.js");
+        const resolver = SkillPathResolver.getInstance();
+        if (resolver.isReady()) {
+            resolver.recordToolUsage(sequence);
+        }
+    } catch {
+        // SkillPathResolver not initialized — skip
+    }
 }
 
 export function getSession(): SessionMemory {
@@ -146,6 +186,7 @@ export function buildAgentContext(requestContext?: {
     openFiles?: string[];
     cursorLine?: number;
     cwd?: string;
+    threadId?: string;
 }): AgentContext {
     const config = loadConfig();
     const workspace = requestContext?.cwd || config.workspace;
@@ -157,6 +198,7 @@ export function buildAgentContext(requestContext?: {
         cursorLine: requestContext?.cursorLine,
         project: detectProject(workspace),
         session: getSession(),
+        threadId: requestContext?.threadId,
     };
 }
 

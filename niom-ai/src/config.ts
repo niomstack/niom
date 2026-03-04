@@ -10,11 +10,11 @@ export interface NiomConfig {
     workspace: string;
 
     // ── AI Provider ──
-    /** Vercel AI Gateway key (vck_...) */
-    gateway_key: string;
-    /** Provider slug: openai, google, anthropic */
+    /** Per-provider API keys */
+    provider_keys: Record<string, string>;
+    /** Active provider slug: openai, google, anthropic, groq, mistral, xai */
     provider: string;
-    /** Model ID: provider/model-name */
+    /** Model ID (native format, e.g. "gpt-4o-mini", "claude-sonnet-4-20250514") */
     model: string;
 
     // ── Sidecar ──
@@ -26,13 +26,6 @@ export interface NiomConfig {
         api_key: string;
     };
 
-    // ── Cortex (file watcher) ──
-    cortex: {
-        watch_paths: string[];
-        excluded: string[];
-        max_events: number;
-    };
-
     // ── MCP Servers ──
     mcp: Array<{
         name: string;
@@ -42,26 +35,21 @@ export interface NiomConfig {
     }>;
 
     // ── Multi-model routing overrides ──
-    /** Override model for each role: fast, capable, vision */
-    models?: Partial<Record<"fast" | "capable" | "vision", string>>;
+    /** Override model for each role: capable, vision, extraction */
+    models?: Partial<Record<"capable" | "vision" | "extraction", string>>;
 }
 
 // ── Defaults ─────────────────────────────────────────────────────
 
 const DEFAULT_CONFIG: NiomConfig = {
     workspace: homedir(),
-    gateway_key: "",
+    provider_keys: {},
     provider: "openai",
-    model: "openai/gpt-4o-mini",
-    sidecar_port: 3001,
+    model: "gpt-4o-mini",
+    sidecar_port: 9741,
     search: {
-        provider: "tavily",
+        provider: "duckduckgo",
         api_key: "",
-    },
-    cortex: {
-        watch_paths: [],
-        excluded: ["node_modules", ".git", "target", "dist", "__pycache__", ".next", "build"],
-        max_events: 1000,
     },
     mcp: [],
 };
@@ -115,8 +103,8 @@ export function loadConfig(): NiomConfig {
             config = {
                 ...DEFAULT_CONFIG,
                 ...parsed,
+                provider_keys: { ...DEFAULT_CONFIG.provider_keys, ...parsed.provider_keys },
                 search: { ...DEFAULT_CONFIG.search, ...parsed.search },
-                cortex: { ...DEFAULT_CONFIG.cortex, ...parsed.cortex },
             };
         } catch (err) {
             console.warn(`[config] Failed to parse config, using defaults:`, err);

@@ -1,8 +1,11 @@
 /**
  * useTasks — Hook for task state management + SSE real-time updates + OS notifications.
+ *
+ * Task Streams model: steering replaces approval.
  */
 
 import { useState, useCallback, useRef, useEffect } from "react";
+import { getSidecarUrl } from "../lib/useConfig";
 import {
     isPermissionGranted,
     requestPermission,
@@ -12,7 +15,6 @@ import {
     type TaskEntry,
     type TaskDetail,
     type TaskRun,
-    SIDECAR_URL,
     fetchTasks,
     fetchTaskDetail,
     fetchTaskRuns,
@@ -49,15 +51,28 @@ async function notify(title: string, body: string): Promise<void> {
     } catch { /* ignore — Tauri might not be available in dev */ }
 }
 
+// ── Helper: steer a task ──
+
+async function steerTask(taskId: string, comment: string, runNow?: boolean): Promise<any> {
+    const res = await fetch(`${getSidecarUrl()}/tasks/${taskId}/steer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ comment, runNow }),
+    });
+    return res.json();
+}
+
 // ── Hook ──
 
-export function useTasks() {
+export function useTasks(initialTaskId?: string) {
     const [tasks, setTasks] = useState<TaskEntry[]>([]);
     const [loading, setLoading] = useState(true);
-    const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+    const [selectedTaskId, setSelectedTaskId] = useState<string | null>(initialTaskId || null);
     const [taskDetail, setTaskDetail] = useState<TaskDetail | null>(null);
     const [taskRuns, setTaskRuns] = useState<TaskRun[]>([]);
     const [actionLoading, setActionLoading] = useState<string | null>(null);
+    /** Live tool status from SSE — maps taskId → current tool name */
+    const [liveToolStatus, setLiveToolStatus] = useState<Record<string, string>>({});
 
     // Notification init
     const notifInitRef = useRef(false);
@@ -93,14 +108,15 @@ export function useTasks() {
     useEffect(() => {
         if (!selectedTaskId) { setTaskDetail(null); setTaskRuns([]); return; }
         refreshDetail(selectedTaskId);
-        const interval = setInterval(() => refreshDetail(selectedTaskId), 5_000);
-        return () => clearInterval(interval);
     }, [selectedTaskId, refreshDetail]);
 
-    // ── SSE (primary update) + fallback polling ──
+    // ── SSE — primary live update channel ──
+    // State is built directly from SSE events. No REST polling during execution.
 
     const tasksRef = useRef(tasks);
     tasksRef.current = tasks;
+    const selectedTaskIdRef = useRef(selectedTaskId);
+    selectedTaskIdRef.current = selectedTaskId;
 
     useEffect(() => {
         let eventSource: EventSource | null = null;
@@ -108,10 +124,9 @@ export function useTasks() {
 
         function startSSE() {
             try {
-                eventSource = new EventSource(`${SIDECAR_URL}/tasks/events`);
+                eventSource = new EventSource(`${getSidecarUrl()}/tasks/events`);
 
                 eventSource.onopen = () => {
-                    // SSE connected — stop fallback polling
                     if (fallbackInterval) {
                         clearInterval(fallbackInterval);
                         fallbackInterval = null;
@@ -119,55 +134,157 @@ export function useTasks() {
                 };
 
                 eventSource.onerror = () => {
-                    // SSE disconnected — start fallback polling (every 15s)
                     if (!fallbackInterval) {
                         fallbackInterval = setInterval(refresh, 15_000);
                     }
                 };
 
+                // ── Run started — create a live run entry from event data ──
+                eventSource.addEventListener("task:start", (e) => {
+                    try {
+                        const data = JSON.parse(e.data);
+                        const { taskId, runId, runNumber, startedAt, phases } = data;
+
+                        // Update task status in the list
+                        setTasks(prev => prev.map(t =>
+                            t.id === taskId ? { ...t, status: "running" as any, updatedAt: Date.now() } : t
+                        ));
+
+                        // If we're viewing this task, create a live run
+                        if (selectedTaskIdRef.current === taskId) {
+                            const liveRun: TaskRun = {
+                                id: runId,
+                                taskId,
+                                runNumber,
+                                status: "running",
+                                startedAt,
+                                phases: phases || [],
+                                toolCalls: [],
+                            };
+                            setTaskRuns(prev => [...prev, liveRun]);
+                        }
+                    } catch { /* ignore */ }
+                });
+
+                // ── Tool call completed — append to live run ──
+                eventSource.addEventListener("task:tool", (e) => {
+                    try {
+                        const data = JSON.parse(e.data);
+                        const { taskId, runId, tool, input, output } = data;
+
+                        // Update live tool status label
+                        const friendly = tool
+                            .replace(/([A-Z])/g, " $1")
+                            .replace(/^./, (s: string) => s.toUpperCase())
+                            .trim();
+                        setLiveToolStatus(prev => ({ ...prev, [taskId]: friendly }));
+
+                        // If we're viewing this task, append tool call to the live run
+                        if (selectedTaskIdRef.current === taskId) {
+                            setTaskRuns(prev => prev.map(r => {
+                                if (r.id !== runId || r.status !== "running") return r;
+                                return {
+                                    ...r,
+                                    toolCalls: [
+                                        ...(r.toolCalls || []),
+                                        { tool, input, output },
+                                    ],
+                                };
+                            }));
+                        }
+                    } catch { /* ignore */ }
+                });
+
+                // ── Phase changed ──
+                eventSource.addEventListener("task:phase", (e) => {
+                    try {
+                        const data = JSON.parse(e.data);
+                        if (selectedTaskIdRef.current === data.taskId) {
+                            setTaskRuns(prev => prev.map(r => {
+                                if (r.taskId !== data.taskId || r.status !== "running") return r;
+                                return {
+                                    ...r,
+                                    phases: (r.phases || []).map(p =>
+                                        p.description === data.phase ? { ...p, status: data.status } : p
+                                    ),
+                                };
+                            }));
+                        }
+                    } catch { /* ignore */ }
+                });
+
+                // ── Run completed — finalize the live run with output ──
                 eventSource.addEventListener("task:complete", (e) => {
-                    refresh();
-                    if (selectedTaskId) refreshDetail(selectedTaskId);
                     try {
                         const data = JSON.parse(e.data);
-                        const task = tasksRef.current.find(t => t.id === data.taskId);
+                        const { taskId, runId, status, output, durationMs, qualityScore } = data;
+
+                        // Clear live tool status
+                        setLiveToolStatus(prev => {
+                            const next = { ...prev };
+                            delete next[taskId];
+                            return next;
+                        });
+
+                        // Update task list (re-fetch to get nextRunAt, etc.)
+                        refresh();
+
+                        // Finalize the live run
+                        if (selectedTaskIdRef.current === taskId) {
+                            setTaskRuns(prev => prev.map(r => {
+                                if (r.id !== runId) return r;
+                                return {
+                                    ...r,
+                                    status,
+                                    output,
+                                    durationMs,
+                                    completedAt: Date.now(),
+                                    evaluation: qualityScore != null
+                                        ? { satisfied: qualityScore >= 0.5, qualityScore, issues: [] }
+                                        : r.evaluation,
+                                };
+                            }));
+                        }
+
+                        // Notify
+                        const task = tasksRef.current.find(t => t.id === taskId);
                         const goalShort = task?.goal?.slice(0, 60) || "Background task";
-                        notify("✅ Task Complete", `${goalShort}\nStatus: ${data.status}`);
+                        notify("✅ Task Complete", `${goalShort}\nStatus: ${status}`);
                     } catch { /* ignore */ }
                 });
 
+                // ── Run errored — mark the live run as failed ──
                 eventSource.addEventListener("task:error", (e) => {
-                    refresh();
-                    if (selectedTaskId) refreshDetail(selectedTaskId);
                     try {
                         const data = JSON.parse(e.data);
-                        const task = tasksRef.current.find(t => t.id === data.taskId);
+                        const { taskId, runId, error } = data;
+
+                        setLiveToolStatus(prev => {
+                            const next = { ...prev };
+                            delete next[taskId];
+                            return next;
+                        });
+
+                        refresh();
+
+                        if (selectedTaskIdRef.current === taskId && runId) {
+                            setTaskRuns(prev => prev.map(r => {
+                                if (r.id !== runId) return r;
+                                return { ...r, status: "failed", error, completedAt: Date.now() };
+                            }));
+                        }
+
+                        const task = tasksRef.current.find(t => t.id === taskId);
                         const goalShort = task?.goal?.slice(0, 60) || "Background task";
-                        notify("❌ Task Failed", `${goalShort}\n${data.error?.slice(0, 80) || "An error occurred"}`);
+                        notify("❌ Task Failed", `${goalShort}\n${error?.slice(0, 80) || "An error occurred"}`);
                     } catch { /* ignore */ }
                 });
 
-                eventSource.addEventListener("task:approval", (e) => {
+                // ── Steering — just refresh task list ──
+                eventSource.addEventListener("task:steer", () => {
                     refresh();
-                    if (selectedTaskId) refreshDetail(selectedTaskId);
-                    try {
-                        const data = JSON.parse(e.data);
-                        const task = tasksRef.current.find(t => t.id === data.taskId);
-                        const goalShort = task?.goal?.slice(0, 60) || "Background task";
-                        notify("⏳ Approval Needed", `${goalShort}\nReview required before continuing.`);
-                    } catch { /* ignore */ }
-                });
-
-                eventSource.addEventListener("task:start", () => {
-                    refresh();
-                    if (selectedTaskId) refreshDetail(selectedTaskId);
-                });
-
-                eventSource.addEventListener("task:tool", () => {
-                    if (selectedTaskId) refreshDetail(selectedTaskId);
                 });
             } catch {
-                // SSE not available — use polling as fallback
                 if (!fallbackInterval) {
                     fallbackInterval = setInterval(refresh, 15_000);
                 }
@@ -180,7 +297,7 @@ export function useTasks() {
             eventSource?.close();
             if (fallbackInterval) clearInterval(fallbackInterval);
         };
-    }, [refresh, selectedTaskId, refreshDetail]);
+    }, [refresh]);
 
     // ── Actions ──
 
@@ -200,9 +317,13 @@ export function useTasks() {
         setActionLoading(null);
     }, [refresh, selectedTaskId]);
 
-    const handleApprove = useCallback(async (taskId: string, runId: string, approved: boolean, notes?: string) => {
-        setActionLoading(`${taskId}:approve`);
-        await taskAction(taskId, "approve", { runId, approved, notes: notes || undefined });
+    /**
+     * Steer a task — post a comment that flows into the next run.
+     * Optionally trigger an immediate re-run with the comment as context.
+     */
+    const handleSteer = useCallback(async (taskId: string, comment: string, runNow?: boolean) => {
+        setActionLoading(`${taskId}:steer`);
+        await steerTask(taskId, comment, runNow);
         await refresh();
         if (selectedTaskId === taskId) await refreshDetail(taskId);
         setActionLoading(null);
@@ -218,24 +339,25 @@ export function useTasks() {
 
     // ── Derived ──
 
-    const activeTasks = tasks.filter(t => !["completed", "cancelled"].includes(t.status));
-    const completedTasks = tasks.filter(t => ["completed", "cancelled"].includes(t.status));
+    const activeTasks = tasks.filter(t => !["done"].includes(t.status));
+    const doneTasks = tasks.filter(t => t.status === "done");
 
     return {
         tasks,
         activeTasks,
-        completedTasks,
+        doneTasks,
         loading,
         selectedTaskId,
         setSelectedTaskId,
         taskDetail,
         taskRuns,
         actionLoading,
+        liveToolStatus,
         refresh,
         refreshDetail,
         handleAction,
         handleDelete,
-        handleApprove,
+        handleSteer,
         handleUpdate,
     };
 }

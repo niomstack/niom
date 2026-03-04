@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Check, ChevronsUpDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -12,24 +12,26 @@ interface ModelSelectorProps {
     value: string
     onSelect: (modelId: string) => void
     sidecarUrl: string
+    /** Only show models from this provider */
+    provider?: string
     /** Compact mode for status bar */
     compact?: boolean
     disabled?: boolean
 }
 
-export function ModelSelector({ value, onSelect, sidecarUrl, compact = false, disabled = false }: ModelSelectorProps) {
+export function ModelSelector({ value, onSelect, sidecarUrl, provider, compact = false, disabled = false }: ModelSelectorProps) {
     const [open, setOpen] = useState(false)
-    const [models, setModels] = useState<ModelGroup>({})
+    const [allModels, setAllModels] = useState<ModelGroup>({})
     const [loading, setLoading] = useState(false)
 
     async function fetchModels() {
-        if (loading || Object.keys(models).length > 0) return
+        if (loading || Object.keys(allModels).length > 0) return
         setLoading(true)
         try {
             const res = await fetch(`${sidecarUrl}/models`)
             if (res.ok) {
                 const data = await res.json()
-                setModels(data.groups || {})
+                setAllModels(data.groups || {})
             }
         } catch { /* ignore */ }
         finally { setLoading(false) }
@@ -40,9 +42,19 @@ export function ModelSelector({ value, onSelect, sidecarUrl, compact = false, di
         if (open) fetchModels()
     }, [open])
 
+    // Filter to active provider only (if specified)
+    const models = useMemo(() => {
+        if (!provider) return allModels
+        const filtered: ModelGroup = {}
+        if (allModels[provider]) {
+            filtered[provider] = allModels[provider]
+        }
+        return filtered
+    }, [allModels, provider])
+
     // Find display name for current value
-    const allModels = Object.values(models).flat()
-    const selectedModel = allModels.find(m => m.id === value)
+    const flatModels = Object.values(models).flat()
+    const selectedModel = flatModels.find(m => m.id === value)
     const displayName = selectedModel?.name || value || "Select model..."
 
     if (compact) {

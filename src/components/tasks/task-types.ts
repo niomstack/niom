@@ -1,8 +1,12 @@
 /**
  * task-types.ts — Shared types, API helpers, and status config for task management.
+ *
+ * Task Streams model:
+ *   4 states: running | flowing | paused | done
+ *   No approval. Steering via inline comments.
  */
 
-export const SIDECAR_URL = "http://localhost:3001";
+import { getSidecarUrl } from "../../lib/useConfig";
 
 // ── Types (mirrored from backend) ──
 
@@ -11,6 +15,7 @@ export interface TaskEntry {
     goal: string;
     taskType: "one_shot" | "recurring" | "continuous" | "triggered";
     status: TaskStatus;
+    threadId?: string;
     nextRunAt?: number;
     lastRunAt?: number;
     totalRuns: number;
@@ -18,7 +23,13 @@ export interface TaskEntry {
     updatedAt: number;
 }
 
-export type TaskStatus = "draft" | "planned" | "scheduled" | "running" | "paused" | "completed" | "failed" | "cancelled";
+export type TaskStatus = "running" | "flowing" | "paused" | "done";
+
+export interface TaskComment {
+    text: string;
+    timestamp: number;
+    appliedToRun?: number;
+}
 
 export interface TaskDetail {
     id: string;
@@ -27,19 +38,20 @@ export interface TaskDetail {
     status: TaskStatus;
     plan: { phases: TaskPhase[]; qualityCriteria: string };
     schedule?: { interval: string; nextRunAt: number; runCount: number; maxRuns?: number; intervalMs: number };
-    approval: { mode: string; firstN: number; approvedRuns: number };
+    autoPause: { enabled: boolean; idleTimeoutMs: number };
     memory: {
         findings: string[];
         sources: string[];
         filesCreated: string[];
         decisions: string[];
-        feedback: Array<{ runId: string; approved: boolean; notes?: string }>;
+        comments: TaskComment[];
     };
     totalRuns: number;
     successfulRuns: number;
     createdAt: number;
     updatedAt: number;
     lastRunAt?: number;
+    lastInteractionAt?: number;
 }
 
 export interface TaskPhase {
@@ -82,16 +94,13 @@ export interface StatusConfig {
 }
 
 export const STATUS_CONFIG: Record<string, StatusConfig> = {
-    draft: { icon: "📝", color: "text-text-muted", label: "Draft" },
-    planned: { icon: "📋", color: "text-text-secondary", label: "Planned" },
-    scheduled: { icon: "🕐", color: "text-accent", label: "Scheduled" },
     running: { icon: "⚡", color: "text-blue-600", label: "Running" },
+    flowing: { icon: "🌊", color: "text-accent", label: "Flowing" },
     paused: { icon: "⏸", color: "text-amber-600", label: "Paused" },
+    done: { icon: "✅", color: "text-emerald-600", label: "Done" },
+    // Run statuses (for run history display)
     completed: { icon: "✅", color: "text-emerald-600", label: "Completed" },
     failed: { icon: "❌", color: "text-red-600", label: "Failed" },
-    cancelled: { icon: "🚫", color: "text-text-muted", label: "Cancelled" },
-    pending_approval: { icon: "⏳", color: "text-amber-600", label: "Awaiting Approval" },
-    rejected: { icon: "✗", color: "text-red-600", label: "Rejected" },
 };
 
 export const TYPE_LABELS: Record<string, string> = {
@@ -135,7 +144,7 @@ export function formatDuration(ms: number): string {
 
 export async function fetchTasks(): Promise<TaskEntry[]> {
     try {
-        const res = await fetch(`${SIDECAR_URL}/tasks`);
+        const res = await fetch(`${getSidecarUrl()}/tasks`);
         if (!res.ok) return [];
         const data = await res.json();
         return data.tasks || [];
@@ -144,7 +153,7 @@ export async function fetchTasks(): Promise<TaskEntry[]> {
 
 export async function fetchTaskDetail(id: string): Promise<TaskDetail | null> {
     try {
-        const res = await fetch(`${SIDECAR_URL}/tasks/${id}`);
+        const res = await fetch(`${getSidecarUrl()}/tasks/${id}`);
         if (!res.ok) return null;
         return res.json();
     } catch { return null; }
@@ -152,7 +161,7 @@ export async function fetchTaskDetail(id: string): Promise<TaskDetail | null> {
 
 export async function fetchTaskRuns(id: string): Promise<TaskRun[]> {
     try {
-        const res = await fetch(`${SIDECAR_URL}/tasks/${id}/runs?limit=20`);
+        const res = await fetch(`${getSidecarUrl()}/tasks/${id}/runs?limit=20`);
         if (!res.ok) return [];
         const data = await res.json();
         return data.runs || [];
@@ -161,7 +170,7 @@ export async function fetchTaskRuns(id: string): Promise<TaskRun[]> {
 
 export async function taskAction(id: string, action: string, body?: any): Promise<boolean> {
     try {
-        const res = await fetch(`${SIDECAR_URL}/tasks/${id}/${action}`, {
+        const res = await fetch(`${getSidecarUrl()}/tasks/${id}/${action}`, {
             method: "POST",
             headers: body ? { "Content-Type": "application/json" } : undefined,
             body: body ? JSON.stringify(body) : undefined,
@@ -172,7 +181,7 @@ export async function taskAction(id: string, action: string, body?: any): Promis
 
 export async function updateTaskApi(id: string, updates: any): Promise<boolean> {
     try {
-        const res = await fetch(`${SIDECAR_URL}/tasks/${id}`, {
+        const res = await fetch(`${getSidecarUrl()}/tasks/${id}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(updates),
@@ -183,7 +192,7 @@ export async function updateTaskApi(id: string, updates: any): Promise<boolean> 
 
 export async function deleteTaskApi(id: string): Promise<boolean> {
     try {
-        const res = await fetch(`${SIDECAR_URL}/tasks/${id}`, { method: "DELETE" });
+        const res = await fetch(`${getSidecarUrl()}/tasks/${id}`, { method: "DELETE" });
         return res.ok;
     } catch { return false; }
 }

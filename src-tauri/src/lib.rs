@@ -1,3 +1,5 @@
+mod config;
+
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::Mutex;
@@ -8,9 +10,6 @@ use tauri::{
     Emitter, Manager,
 };
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
-
-const SIDECAR_PORT: u16 = 3001;
-const SIDECAR_HEALTH_URL: &str = "http://localhost:3001/health";
 
 // ─── Main Window ──────────────────────────────────────
 
@@ -37,6 +36,14 @@ struct SidecarState {
     process: Mutex<Option<Child>>,
 }
 
+/// Managed state for the global hotkey.
+struct HotkeyState {
+    /// true = registered, false = conflict
+    registered: Mutex<bool>,
+    /// Error message if registration failed
+    error: Mutex<Option<String>>,
+}
+
 /// Spawn the Node.js sidecar process.
 /// In dev mode, Tauri's beforeDevCommand already starts it via `pnpm dev:sidecar`.
 /// In production, we spawn the bundled Node.js binary with the bundled sidecar JS.
@@ -44,7 +51,7 @@ fn spawn_sidecar() -> Option<Child> {
     // In dev mode, the sidecar is started by beforeDevCommand.
     // Check if it's already running before spawning.
     if check_sidecar_health() {
-        log::info!("Sidecar already running on port {}", SIDECAR_PORT);
+        log::info!("Sidecar already running on port {}", config::sidecar_port());
         return None;
     }
 
@@ -181,7 +188,7 @@ fn check_sidecar_health() -> bool {
 
     match client {
         Ok(c) => c
-            .get(SIDECAR_HEALTH_URL)
+            .get(&config::sidecar_health_url())
             .send()
             .map(|r| r.status().is_success())
             .unwrap_or(false),
@@ -269,13 +276,30 @@ fn restart_sidecar(sidecar: tauri::State<'_, SidecarState>) -> Result<String, St
     }
 }
 
+/// Get global hotkey registration status.
+#[tauri::command]
+fn get_hotkey_status(state: tauri::State<'_, HotkeyState>) -> Result<serde_json::Value, String> {
+    let registered = *state.registered.lock().unwrap();
+    let error = state.error.lock().unwrap().clone();
+    Ok(serde_json::json!({
+        "registered": registered,
+        "shortcut": "Ctrl+Space",
+        "error": error,
+    }))
+}
+
 // ─── App Entry Point ─────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let data_dir = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".niom");
+    // Load config first — drives port, data dir, everything
+    let app_config = config::load();
+    let data_dir = config::data_dir();
+    log::info!(
+        "[config] sidecar_port={}, model={}",
+        app_config.sidecar_port,
+        app_config.model
+    );
 
     // Spawn sidecar (or detect it's already running from beforeDevCommand)
     let sidecar_child = spawn_sidecar();
@@ -302,13 +326,17 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(sidecar_state)
+        .manage(HotkeyState {
+            registered: Mutex::new(true),
+            error: Mutex::new(None),
+        })
         .setup(move |app| {
             log::info!("NIOM data dir: {:?}", data_dir);
 
             // Wait for sidecar to be healthy
             let healthy = wait_for_sidecar(20);
             if healthy {
-                log::info!("Sidecar is healthy on port {}", SIDECAR_PORT);
+                log::info!("Sidecar is healthy on port {}", config::sidecar_port());
             } else {
                 log::warn!("Sidecar not detected — AI features unavailable");
             }
@@ -369,13 +397,23 @@ pub fn run() {
             // ─── Global Hotkey: Ctrl+Space → show main window ───
             use tauri_plugin_global_shortcut::ShortcutState;
 
-            app.global_shortcut()
+            match app
+                .global_shortcut()
                 .on_shortcut("Ctrl+Space", move |app, shortcut, event| {
                     if event.state == ShortcutState::Pressed {
                         log::info!("Global shortcut pressed: {:?}", shortcut);
                         show_main_window(app);
                     }
-                })?;
+                }) {
+                Ok(_) => log::info!("Global shortcut Ctrl+Space registered"),
+                Err(e) => {
+                    let msg = format!("{}", e);
+                    log::warn!("Could not register Ctrl+Space: {}", msg);
+                    let state = app.state::<HotkeyState>();
+                    *state.registered.lock().unwrap() = false;
+                    *state.error.lock().unwrap() = Some(msg);
+                }
+            }
 
             // ─── Close window: minimize to tray ───
             if let Some(window) = app.get_webview_window("main") {
@@ -397,6 +435,9 @@ pub fn run() {
             get_os_username,
             get_sidecar_status,
             restart_sidecar,
+            get_hotkey_status,
+            config::get_config,
+            config::save_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running NIOM");

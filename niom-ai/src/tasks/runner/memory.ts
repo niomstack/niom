@@ -37,7 +37,7 @@ export function updateTaskMemory(task: BackgroundTask, run: TaskRun): void {
     }
 
     // Record finding if run was successful
-    if ((run.status === "completed" || run.status === "pending_approval") && run.summary) {
+    if (run.status === "completed" && run.summary) {
         task.memory.findings.push(
             `Run #${run.runNumber} (${new Date(run.startedAt).toLocaleDateString()}): ${run.summary.slice(0, 200)}`
         );

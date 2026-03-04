@@ -13,7 +13,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { ArrowLeft, ArrowUp, Sparkles, Cpu, Clock, Activity, Zap, Terminal } from "lucide-react";
+import { ArrowLeft, ArrowUp, Sparkles, Cpu, Clock, Activity, Zap, Terminal, ListChecks, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipTrigger, TooltipContent } from "../ui/tooltip";
 import { Markdown } from "../../Markdown";
@@ -24,7 +24,10 @@ import { cn } from "../../lib/utils";
 import { ScrollArea } from "../ui/scroll-area";
 import type { useThreads } from "../../hooks/useThreads";
 
-const SIDECAR_URL = "http://localhost:3001";
+import { getSidecarUrl } from "../../lib/useConfig";
+import { type TaskEntry, STATUS_CONFIG } from "../tasks/task-types";
+import { useArtifacts } from "../../hooks/useArtifacts";
+import { ArtifactsList } from "../ArtifactsList";
 
 // ── Types ──
 
@@ -64,7 +67,7 @@ function formatModelName(model: string | null): string {
 
 // ── Component ──
 
-interface PendingApproval {
+interface PendingConfirmation {
     approvalId: string;
     toolCallId: string;
     toolName: string;
@@ -77,9 +80,10 @@ interface WorkspaceViewProps {
     onBack: () => void;
     initialQuery?: string;
     threadState: ReturnType<typeof useThreads>;
+    onViewTask?: (taskId: string) => void;
 }
 
-export function WorkspaceView({ onBack, initialQuery, threadState }: WorkspaceViewProps) {
+export function WorkspaceView({ onBack, initialQuery, threadState, onViewTask }: WorkspaceViewProps) {
     const [query, setQuery] = useState("");
     const [sidecar, setSidecar] = useState<SidecarInfo>({
         model: null,
@@ -107,10 +111,41 @@ export function WorkspaceView({ onBack, initialQuery, threadState }: WorkspaceVi
     const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
     const [thinking, setThinking] = useState(false);
     const [thinkingStatus, setThinkingStatus] = useState("");
-    const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);
+    const [pendingConfirmations, setPendingConfirmations] = useState<PendingConfirmation[]>([]);
     const conversationRef = useRef<any[]>([]);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const abortRef = useRef<AbortController | null>(null);
+
+    // ── Related tasks panel ──
+    const [relatedTasks, setRelatedTasks] = useState<TaskEntry[]>([]);
+    const [tasksExpanded, setTasksExpanded] = useState(true);
+
+    // ── Conversation artifacts ──
+    const { artifacts: conversationArtifacts, refresh: refreshArtifacts } = useArtifacts(
+        "conversation",
+        activeThread?.id ?? undefined,
+        sidecar.workspace ?? undefined,
+    );
+
+    // Fetch tasks linked to this thread
+    useEffect(() => {
+        if (!activeThread?.id) { setRelatedTasks([]); return; }
+        let cancelled = false;
+
+        async function fetchRelatedTasks() {
+            try {
+                const res = await fetch(`${getSidecarUrl()}/tasks?threadId=${activeThread!.id}`);
+                if (res.ok && !cancelled) {
+                    const data = await res.json();
+                    setRelatedTasks(data.tasks || []);
+                }
+            } catch { /* ignore */ }
+        }
+
+        fetchRelatedTasks();
+        const interval = setInterval(fetchRelatedTasks, 10_000);
+        return () => { cancelled = true; clearInterval(interval); };
+    }, [activeThread?.id]);
 
     // ── Sidecar polling ──
     useEffect(() => {
@@ -118,8 +153,8 @@ export function WorkspaceView({ onBack, initialQuery, threadState }: WorkspaceVi
         async function fetchInfo() {
             try {
                 const [rootRes, healthRes] = await Promise.all([
-                    fetch(`${SIDECAR_URL}/`),
-                    fetch(`${SIDECAR_URL}/health`),
+                    fetch(`${getSidecarUrl()}/`),
+                    fetch(`${getSidecarUrl()}/health`),
                 ]);
                 if (cancelled) return;
                 const root = await rootRes.json();
@@ -206,11 +241,12 @@ export function WorkspaceView({ onBack, initialQuery, threadState }: WorkspaceVi
         abortRef.current = controller;
 
         try {
-            const res = await fetch(`${SIDECAR_URL}/run`, {
+            const res = await fetch(`${getSidecarUrl()}/run`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     messages: threadMessages,
+                    threadId,
                     context: sidecar.workspace ? { cwd: sidecar.workspace } : undefined,
                 }),
                 signal: controller.signal,
@@ -275,12 +311,12 @@ export function WorkspaceView({ onBack, initialQuery, threadState }: WorkspaceVi
                     messageParts.push({ type: "text", start: textCharsSoFar, end: textCharsSoFar });
                     setContentParts(prev => ({ ...prev, [responseMsg.id]: [...messageParts] }));
                 },
-                onToolApproval: (approvalId, toolCallId, toolName, input) => {
-                    const approval: PendingApproval = {
+                onToolConfirmation: (approvalId, toolCallId, toolName, input) => {
+                    const confirmation: PendingConfirmation = {
                         approvalId, toolCallId, toolName, input,
                         messageId: responseMsg.id, threadId,
                     };
-                    setPendingApprovals(prev => [...prev, approval]);
+                    setPendingConfirmations(prev => [...prev, confirmation]);
 
                     const existingTc = msgToolCalls.find(t => t.id === toolCallId);
                     if (existingTc) {
@@ -297,7 +333,7 @@ export function WorkspaceView({ onBack, initialQuery, threadState }: WorkspaceVi
                         streamedToolCalls.push({ toolCallId, toolName, input, approvalId });
                     }
 
-                    // Build conversation ref for approval resume
+                    // Build conversation ref for confirmation resume
                     const assistantParts: any[] = [];
                     const currentContent = activeThread?.messages.find(m => m.id === responseMsg.id)?.content;
                     if (currentContent) assistantParts.push({ type: "text", text: currentContent });
@@ -372,16 +408,16 @@ export function WorkspaceView({ onBack, initialQuery, threadState }: WorkspaceVi
         }
     }, [activeThread, thinking, sidecar.workspace, createThread, addMessage, updateMessage, updateThread, requestTitleGeneration, shouldRegenerateTitle]);
 
-    // ── Handle tool approval ──
-    const handleApproval = useCallback(async (approval: PendingApproval, approved: boolean) => {
-        setPendingApprovals(prev => prev.filter(a => a.approvalId !== approval.approvalId));
+    // ── Handle tool confirmation ──
+    const handleConfirmation = useCallback(async (confirmation: PendingConfirmation, approved: boolean) => {
+        setPendingConfirmations(prev => prev.filter(a => a.approvalId !== confirmation.approvalId));
 
         setToolCalls(prev => {
-            const msgTools = prev[approval.messageId] || [];
+            const msgTools = prev[confirmation.messageId] || [];
             return {
                 ...prev,
-                [approval.messageId]: msgTools.map(tc =>
-                    tc.id === approval.toolCallId
+                [confirmation.messageId]: msgTools.map(tc =>
+                    tc.id === confirmation.toolCallId
                         ? { ...tc, status: approved ? "running" as const : "error" as const }
                         : tc
                 ),
@@ -389,16 +425,16 @@ export function WorkspaceView({ onBack, initialQuery, threadState }: WorkspaceVi
         });
 
         if (!approved) {
-            updateMessage(approval.threadId, approval.messageId, {
-                content: (activeThread?.messages.find(m => m.id === approval.messageId)?.content || "") +
-                    `\n\n*Tool \`${approval.toolName}\` was denied by user.*`,
+            updateMessage(confirmation.threadId, confirmation.messageId, {
+                content: (activeThread?.messages.find(m => m.id === confirmation.messageId)?.content || "") +
+                    `\n\n*Tool \`${confirmation.toolName}\` was denied by user.*`,
             });
-            updateThread(approval.threadId, { status: "completed" });
+            updateThread(confirmation.threadId, { status: "completed" });
             return;
         }
 
         setThinking(true);
-        const threadId = approval.threadId;
+        const threadId = confirmation.threadId;
 
         try {
             const controller = new AbortController();
@@ -408,11 +444,11 @@ export function WorkspaceView({ onBack, initialQuery, threadState }: WorkspaceVi
                 ...conversationRef.current,
                 {
                     role: "tool",
-                    content: [{ type: "tool-approval-response", approvalId: approval.approvalId, approved: true }],
+                    content: [{ type: "tool-approval-response", approvalId: confirmation.approvalId, approved: true }],
                 },
             ];
 
-            const res = await fetch(`${SIDECAR_URL}/run/approve`, {
+            const res = await fetch(`${getSidecarUrl()}/run/confirm`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -424,7 +460,7 @@ export function WorkspaceView({ onBack, initialQuery, threadState }: WorkspaceVi
 
             if (!res.ok) {
                 const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-                throw new Error(err.message || err.error || `Approval request failed: ${res.status}`);
+                throw new Error(err.message || err.error || `Confirmation request failed: ${res.status}`);
             }
 
             const responseMsg = addMessage(threadId, {
@@ -434,11 +470,11 @@ export function WorkspaceView({ onBack, initialQuery, threadState }: WorkspaceVi
             });
 
             setToolCalls(prev => {
-                const origTools = prev[approval.messageId] || [];
+                const origTools = prev[confirmation.messageId] || [];
                 return {
                     ...prev,
-                    [approval.messageId]: origTools.map(tc =>
-                        tc.id === approval.toolCallId
+                    [confirmation.messageId]: origTools.map(tc =>
+                        tc.id === confirmation.toolCallId
                             ? { ...tc, status: "complete" as const, output: { approved: true } }
                             : tc
                     ),
@@ -466,8 +502,8 @@ export function WorkspaceView({ onBack, initialQuery, threadState }: WorkspaceVi
                     if (tc) { tc.output = output; tc.status = "complete"; }
                     setToolCalls(prev => ({ ...prev, [responseMsg.id]: [...msgToolCalls] }));
                 },
-                onToolApproval: (approvalId, toolCallId, toolName, input) => {
-                    setPendingApprovals(prev => [...prev, {
+                onToolConfirmation: (approvalId, toolCallId, toolName, input) => {
+                    setPendingConfirmations(prev => [...prev, {
                         approvalId, toolCallId, toolName, input,
                         messageId: responseMsg.id, threadId,
                     }]);
@@ -488,15 +524,15 @@ export function WorkspaceView({ onBack, initialQuery, threadState }: WorkspaceVi
                 });
             }
 
-            const hasPendingApprovals = pendingApprovals.length > 0 ||
+            const hasPendingConfirmations = pendingConfirmations.length > 0 ||
                 msgToolCalls.some(tc => tc.status === "running");
-            updateThread(threadId, { status: hasPendingApprovals ? "paused" : "completed" });
+            updateThread(threadId, { status: hasPendingConfirmations ? "paused" : "completed" });
 
         } catch (err: any) {
             if (err.name === "AbortError") return;
             addMessage(threadId, {
                 role: "niom",
-                content: `Error resuming after approval: ${err.message || String(err)}`,
+                content: `Error resuming after confirmation: ${err.message || String(err)}`,
                 metadata: { type: "error" },
             });
             updateThread(threadId, { status: "failed" });
@@ -504,7 +540,7 @@ export function WorkspaceView({ onBack, initialQuery, threadState }: WorkspaceVi
             setThinking(false);
             abortRef.current = null;
         }
-    }, [activeThread, sidecar.workspace, pendingApprovals, addMessage, updateMessage, updateThread]);
+    }, [activeThread, sidecar.workspace, pendingConfirmations, addMessage, updateMessage, updateThread]);
 
     // Auto-send initial query from home
     const initialSentRef = useRef(false);
@@ -713,9 +749,9 @@ export function WorkspaceView({ onBack, initialQuery, threadState }: WorkspaceVi
                                 </div>
                             );
                         })}
-                        {/* Pending approval cards */}
-                        {pendingApprovals.map((approval) => (
-                            <div key={approval.approvalId} className="flex gap-3 justify-start">
+                        {/* Pending confirmation cards */}
+                        {pendingConfirmations.map((confirmation) => (
+                            <div key={confirmation.approvalId} className="flex gap-3 justify-start">
                                 <div className="w-7 h-7 bg-transparent flex items-center justify-center shrink-0 mt-0.5">
                                     <NiomLogo size={16} />
                                 </div>
@@ -723,28 +759,28 @@ export function WorkspaceView({ onBack, initialQuery, threadState }: WorkspaceVi
                                     <div className="flex items-center gap-2 mb-2">
                                         <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
                                         <span className="text-[10px] font-mono font-semibold text-yellow-500 uppercase tracking-wider">
-                                            Approval Required
+                                            Confirmation Required
                                         </span>
                                     </div>
                                     <div className="text-[11px] font-mono text-text-primary mb-1">
-                                        Tool: <span className="text-accent">{approval.toolName}</span>
+                                        Tool: <span className="text-accent">{confirmation.toolName}</span>
                                     </div>
-                                    {approval.input && (
+                                    {confirmation.input && (
                                         <pre className="text-[9px] font-mono text-text-tertiary bg-surface-card/50 p-2 mb-3 max-h-32 overflow-auto">
-                                            {typeof approval.input === "string"
-                                                ? approval.input
-                                                : JSON.stringify(approval.input, null, 2)}
+                                            {typeof confirmation.input === "string"
+                                                ? confirmation.input
+                                                : JSON.stringify(confirmation.input, null, 2)}
                                         </pre>
                                     )}
                                     <div className="flex gap-2">
                                         <button
-                                            onClick={() => handleApproval(approval, true)}
+                                            onClick={() => handleConfirmation(confirmation, true)}
                                             className="px-3 py-1.5 text-[10px] font-mono font-semibold uppercase tracking-wider bg-accent text-white border-none cursor-pointer hover:brightness-110 transition-all"
                                         >
-                                            Approve
+                                            Confirm
                                         </button>
                                         <button
-                                            onClick={() => handleApproval(approval, false)}
+                                            onClick={() => handleConfirmation(confirmation, false)}
                                             className="px-3 py-1.5 text-[10px] font-mono font-semibold uppercase tracking-wider bg-transparent text-text-secondary border border-border-subtle cursor-pointer hover:bg-surface-card-hover hover:border-danger/30 hover:text-danger transition-all"
                                         >
                                             Deny
@@ -757,6 +793,78 @@ export function WorkspaceView({ onBack, initialQuery, threadState }: WorkspaceVi
                     </div>
                 )}
             </ScrollArea>
+
+            {/* ══════════════════════════════════════════════
+                RELATED TASKS — collapsible panel
+               ══════════════════════════════════════════════ */}
+            {relatedTasks.length > 0 && (
+                <div className="shrink-0 border-t border-accent/[0.08]">
+                    {/* Toggle header */}
+                    <button
+                        onClick={() => setTasksExpanded(!tasksExpanded)}
+                        className="w-full flex items-center gap-2 px-5 py-2 bg-transparent border-none cursor-pointer hover:bg-[rgba(91,63,230,0.03)] transition-all"
+                    >
+                        <ListChecks className="w-3.5 h-3.5 text-accent/60" />
+                        <span className="text-[10px] font-mono font-semibold text-text-secondary uppercase tracking-[0.15em]">
+                            Related Tasks
+                        </span>
+                        <span className="text-[9px] font-mono bg-accent/10 text-accent px-1.5 py-0.5 rounded">
+                            {relatedTasks.length}
+                        </span>
+                        <div className="flex-1" />
+                        {tasksExpanded ? (
+                            <ChevronDown className="w-3 h-3 text-text-muted" />
+                        ) : (
+                            <ChevronUp className="w-3 h-3 text-text-muted" />
+                        )}
+                    </button>
+
+                    {/* Task list */}
+                    {tasksExpanded && (
+                        <div className="px-5 pb-2 space-y-1">
+                            {relatedTasks.map(task => {
+                                const sc = STATUS_CONFIG[task.status] || STATUS_CONFIG.draft;
+                                return (
+                                    <div
+                                        key={task.id}
+                                        onClick={() => onViewTask?.(task.id)}
+                                        className="flex items-center gap-2.5 px-3 py-2 bg-surface-card/50 border border-border-subtle/30 hover:border-accent/15 hover:bg-[rgba(91,63,230,0.04)] transition-all cursor-pointer"
+                                    >
+                                        <span className="text-[11px]" title={sc.label}>{sc.icon}</span>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="text-[11px] font-mono text-text-primary truncate">{task.goal}</div>
+                                            <div className="text-[9px] font-mono text-text-muted flex items-center gap-2">
+                                                <span className={sc.color}>{sc.label}</span>
+                                                <span>·</span>
+                                                <span>{task.totalRuns} run{task.totalRuns !== 1 ? "s" : ""}</span>
+                                                {task.nextRunAt && (
+                                                    <>
+                                                        <span>·</span>
+                                                        <span>next: {new Date(task.nextRunAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                                                    </>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* ══════════════════════════════════════════════
+                ARTIFACTS — files created during this conversation
+               ══════════════════════════════════════════════ */}
+            {conversationArtifacts.length > 0 && (
+                <div className="shrink-0 border-t border-accent/[0.08] bg-surface-base/80 px-6 py-2">
+                    <ArtifactsList
+                        artifacts={conversationArtifacts}
+                        compact
+                        onRefresh={refreshArtifacts}
+                    />
+                </div>
+            )}
 
             {/* ══════════════════════════════════════════════
                 FOOTER — full width, fixed to bottom

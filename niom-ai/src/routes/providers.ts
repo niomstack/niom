@@ -1,67 +1,63 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { listProviders, getDefaultModel, resetGateway, getGateway } from "../ai/providers.js";
+import { listProviders, getDefaultModel, getConfiguredProviders, getProviderInfo } from "../ai/providers.js";
 import { loadConfig, saveConfig } from "../config.js";
 
-// ── Request validation (inlined — no need for a separate schemas file) ──
+// ── Request validation ──
 
 const ConfigureProviderRequest = z.object({
     provider: z.string().optional(),
-    model: z.string().optional().describe("Gateway model ID, e.g. 'openai/gpt-4o-mini'"),
-    gateway_key: z.string().optional(),
+    model: z.string().optional().describe("Native model ID, e.g. 'gpt-4o-mini'"),
+    provider_key: z.string().optional().describe("API key for the provider"),
+    provider_name: z.string().optional().describe("Which provider the key is for"),
 });
 
 const providers = new Hono();
 
 /**
- * GET /providers — List all available providers via the gateway.
+ * GET /providers — List all available providers with their model catalogs.
  */
 providers.get("/providers", (c) => {
     const config = loadConfig();
     const providerList = listProviders();
+    const configured = getConfiguredProviders(config);
 
     return c.json({
+        active_provider: config.provider,
         active_model: config.model,
-        gateway_configured: !!config.gateway_key,
-        providers: providerList,
+        configured_providers: configured,
+        providers: providerList.map((p) => ({
+            ...p,
+            configured: configured.includes(p.name),
+        })),
     });
 });
 
 /**
- * GET /models — List all available models from the AI Gateway, grouped by provider.
+ * GET /models — List all available models, grouped by provider.
+ * Uses static catalog — no external API call needed.
  */
-providers.get("/models", async (c) => {
-    try {
-        const config = loadConfig();
-        if (!config.gateway_key) {
-            return c.json({ error: "No AI Gateway key configured" }, 503);
-        }
+providers.get("/models", (c) => {
+    const config = loadConfig();
+    const allProviders = listProviders();
+    const configured = getConfiguredProviders(config);
 
-        const gw = getGateway();
-        const { models } = await gw.getAvailableModels();
-
-        // Group models by provider (the part before '/')
-        const grouped: Record<string, Array<{ id: string; name: string }>> = {};
-        for (const model of models) {
-            const slash = model.id.indexOf("/");
-            const provider = slash > 0 ? model.id.substring(0, slash) : "other";
-            if (!grouped[provider]) grouped[provider] = [];
-            grouped[provider].push({ id: model.id, name: model.name });
-        }
-
-        return c.json({
-            active_model: config.model,
-            groups: grouped,
-            total: models.length,
-        });
-    } catch (err: any) {
-        console.error("[models] Error fetching models:", err.message);
-        return c.json({ error: "Failed to fetch models", message: err.message }, 500);
+    const groups: Record<string, Array<{ id: string; name: string }>> = {};
+    for (const p of allProviders) {
+        groups[p.name] = p.models;
     }
+
+    return c.json({
+        active_model: `${config.provider}/${config.model}`,
+        active_provider: config.provider,
+        configured_providers: configured,
+        groups,
+        total: allProviders.reduce((sum, p) => sum + p.models.length, 0),
+    });
 });
 
 /**
- * POST /providers/configure — Update the active model/provider.
+ * POST /providers/configure — Update provider, model, or API key.
  */
 providers.post("/providers/configure", async (c) => {
     try {
@@ -76,19 +72,20 @@ providers.post("/providers/configure", async (c) => {
         }
 
         const config = loadConfig();
-        const { provider, model, gateway_key } = parsed.data;
+        const { provider, model, provider_key, provider_name } = parsed.data;
 
-        if (gateway_key !== undefined) {
-            config.gateway_key = gateway_key;
-            resetGateway(); // Re-create gateway with new key
+        // Save provider API key
+        if (provider_key !== undefined && provider_name) {
+            if (!config.provider_keys) config.provider_keys = {};
+            config.provider_keys[provider_name] = provider_key;
         }
 
+        // Update active model
         if (model !== undefined) {
             config.model = model;
-            // Extract provider from model ID (e.g., "openai/gpt-4o" → "openai")
-            const slash = model.indexOf("/");
-            if (slash > 0) {
-                config.provider = model.substring(0, slash);
+            // If provider is also specified, update it
+            if (provider) {
+                config.provider = provider;
             }
         } else if (provider !== undefined) {
             config.provider = provider;
@@ -99,9 +96,9 @@ providers.post("/providers/configure", async (c) => {
 
         return c.json({
             status: "ok",
-            model: config.model,
             provider: config.provider,
-            message: `Configured: ${config.model}`,
+            model: config.model,
+            message: `Configured: ${config.provider}/${config.model}`,
         });
     } catch (err: any) {
         console.error("[providers/configure] Error:", err.message);
@@ -110,30 +107,49 @@ providers.post("/providers/configure", async (c) => {
 });
 
 /**
- * POST /providers/test — Test the gateway connection by running a quick analysis.
+ * POST /providers/test — Test the connection by running a quick inference.
  */
 providers.post("/providers/test", async (c) => {
     try {
         const config = loadConfig();
+        const body = await c.req.json().catch(() => ({}));
+        const testModel = body.model || config.model;
+        const testProvider = body.provider || config.provider;
 
-        if (!config.gateway_key) {
+        const apiKey = config.provider_keys?.[testProvider];
+        if (!apiKey) {
             return c.json({
                 status: "error",
-                message: "No AI Gateway key configured. Add your key in Settings.",
+                message: `No API key configured for ${testProvider}. Add your key in Settings.`,
             });
         }
 
-        const { analyzeIntent } = await import("../ai/analyze.js");
+        // Test using a quick generateText call + Skill Tree readiness
+        const { generateText } = await import("ai");
+        const { getModel } = await import("../ai/providers.js");
+        const { SkillPathResolver } = await import("../skills/traversal.js");
         const startTime = Date.now();
 
-        const result = await analyzeIntent("Hello, are you working?", 1);
+        // Check Skill Tree readiness
+        const resolver = SkillPathResolver.getInstance();
+        const path = await resolver.resolve("Hello, are you working?");
+
+        // Quick LLM test
+        const model = getModel(config);
+        const result = await generateText({
+            model,
+            prompt: "Reply with exactly: OK",
+            temperature: 0,
+        });
         const latencyMs = Date.now() - startTime;
 
         return c.json({
             status: "ok",
-            model: config.model,
+            provider: testProvider,
+            model: testModel,
             latency_ms: latencyMs,
-            test_result: `${result.complexity}/${result.taskType}`,
+            test_result: `${path.executionMode}/${path.primaryDomain} | LLM: ${result.text?.slice(0, 10)}`,
+            skill_tree_ready: resolver.isReady(),
         });
     } catch (err: any) {
         return c.json({
@@ -144,4 +160,3 @@ providers.post("/providers/test", async (c) => {
 });
 
 export default providers;
-

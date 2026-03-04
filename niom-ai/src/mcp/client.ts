@@ -18,7 +18,6 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { tool, type Tool } from "ai";
 import { z } from "zod";
 import { loadConfig, saveConfig, type NiomConfig } from "../config.js";
-import { registerCapability } from "../ai/capabilities.js";
 import { invalidateToolsCache } from "../tools/index.js";
 
 // ── Types ──
@@ -371,7 +370,7 @@ class MCPManager {
     }
 
     /**
-     * Update the capability registry with current MCP connections.
+     * Update tool cache when MCP connections change.
      */
     private updateCapabilities(): void {
         // Invalidate tool cache so getAllTools() picks up new MCP tools
@@ -380,20 +379,10 @@ class MCPManager {
         const connected = Array.from(this.connections.values())
             .filter(c => c.status === "connected");
 
-        if (connected.length === 0) return;
-
-        const descriptions = connected.map(c =>
-            `- **${c.config.name}**: ${c.toolNames.map(t => t.replace(`mcp_${c.config.name}_`, "")).join(", ")}`
-        ).join("\n");
-
-        registerCapability({
-            id: "mcp-integrations",
-            name: "MCP Integrations",
-            category: "integration",
-            description: `You have access to external tools via MCP (Model Context Protocol):\n${descriptions}`,
-            enabled: () => connected.length > 0,
-            instructions: "Use MCP tools when the task involves external services. The tool names are prefixed with `mcp_{server}_`.",
-        });
+        if (connected.length > 0) {
+            const toolCount = connected.reduce((sum, c) => sum + c.toolNames.length, 0);
+            console.log(`[mcp] ${connected.length} server(s) connected, ${toolCount} tools available`);
+        }
     }
 }
 

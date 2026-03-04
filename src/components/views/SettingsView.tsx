@@ -14,11 +14,12 @@ import {
     ItemGroup,
     Item,
 } from "../ui/item";
-import { Cpu, Settings, Info, Brain } from "lucide-react";
+import { Cpu, Settings, Info, Brain, Sliders } from "lucide-react";
 import { getSidecarUrl } from "../../lib/useConfig";
 import type { SidecarStatus } from "./settings/shared";
 import { ModelsSection } from "./settings/ModelsSection";
 import { MemorySection } from "./settings/MemorySection";
+import { GeneralSection } from "./settings/GeneralSection";
 import { AboutSection } from "./settings/AboutSection";
 
 // ── Section definitions ──
@@ -30,6 +31,7 @@ interface SettingsSection {
 }
 
 const SECTIONS: SettingsSection[] = [
+    { id: "general", label: "General", icon: <Sliders className="w-4 h-4" /> },
     { id: "models", label: "AI Models", icon: <Cpu className="w-4 h-4" /> },
     { id: "memory", label: "Memory", icon: <Brain className="w-4 h-4" /> },
     { id: "about", label: "About", icon: <Info className="w-4 h-4" /> },
@@ -42,7 +44,7 @@ interface SettingsViewProps {
 }
 
 export function SettingsView({ onClose }: SettingsViewProps) {
-    const [activeSection, setActiveSection] = useState("models");
+    const [activeSection, setActiveSection] = useState("general");
     const [saveStatus, setSaveStatus] = useState<string | null>(null);
     const [sidecarStatus, setSidecarStatus] = useState<SidecarStatus | null>(null);
 
@@ -140,6 +142,10 @@ export function SettingsView({ onClose }: SettingsViewProps) {
                                 }`}>
                                 {saveStatus.startsWith("✓") || saveStatus === "Saved" || saveStatus.includes("cleared") ? "✓" : "✗"} {saveStatus}
                             </div>
+                        )}
+
+                        {activeSection === "general" && (
+                            <GeneralSection />
                         )}
 
                         {activeSection === "models" && (

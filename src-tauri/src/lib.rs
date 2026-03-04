@@ -9,6 +9,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager,
 };
+use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 // ─── Main Window ──────────────────────────────────────
@@ -307,6 +308,36 @@ fn get_hotkey_status(state: tauri::State<'_, HotkeyState>) -> Result<serde_json:
     }))
 }
 
+/// Get current autostart status.
+#[tauri::command]
+fn get_autostart_enabled(app: tauri::AppHandle) -> Result<bool, String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let manager = app.autolaunch();
+    manager
+        .is_enabled()
+        .map_err(|e| format!("Failed to check autostart: {}", e))
+}
+
+/// Enable or disable autostart.
+#[tauri::command]
+fn set_autostart_enabled(app: tauri::AppHandle, enabled: bool) -> Result<bool, String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let manager = app.autolaunch();
+    if enabled {
+        manager
+            .enable()
+            .map_err(|e| format!("Failed to enable autostart: {}", e))?;
+    } else {
+        manager
+            .disable()
+            .map_err(|e| format!("Failed to disable autostart: {}", e))?;
+    }
+    log::info!("Autostart {}", if enabled { "enabled" } else { "disabled" });
+    manager
+        .is_enabled()
+        .map_err(|e| format!("Failed to verify autostart: {}", e))
+}
+
 // ─── App Entry Point ─────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -344,6 +375,10 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_autostart::init(
+            MacosLauncher::LaunchAgent,
+            None,
+        ))
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // Another instance tried to launch — focus the existing window
             log::info!("Second instance detected — focusing existing window");
@@ -455,6 +490,8 @@ pub fn run() {
             get_sidecar_status,
             restart_sidecar,
             get_hotkey_status,
+            get_autostart_enabled,
+            set_autostart_enabled,
             config::get_config,
             config::save_config,
         ])

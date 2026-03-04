@@ -9,6 +9,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { invoke } from "@tauri-apps/api/core";
 import { ArrowDownCircle, Loader2, CheckCircle2 } from "lucide-react";
 
 type UpdateState = "checking" | "available" | "downloading" | "installing" | "done" | "idle" | "error";
@@ -57,6 +58,17 @@ export function UpdateBanner() {
 
             let downloaded = 0;
             let contentLength = 0;
+
+            // Kill the sidecar BEFORE install — Windows locks running .exe files
+            // so the NSIS installer can't overwrite node.exe while it's running.
+            // The brief sidecar downtime doesn't matter since we're about to relaunch.
+            try {
+                await invoke("stop_sidecar");
+                // Give the OS a moment to release file handles
+                await new Promise(r => setTimeout(r, 500));
+            } catch (e) {
+                console.warn("[updater] Failed to stop sidecar (continuing anyway):", e);
+            }
 
             await update.downloadAndInstall((event) => {
                 switch (event.event) {

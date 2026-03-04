@@ -296,6 +296,24 @@ fn restart_sidecar(sidecar: tauri::State<'_, SidecarState>) -> Result<String, St
     }
 }
 
+/// Stop the sidecar process without re-spawning.
+/// Used before updates to release file locks on node.exe.
+#[tauri::command]
+fn stop_sidecar(sidecar: tauri::State<'_, SidecarState>) -> Result<String, String> {
+    log::info!("Sidecar stop requested (for update)");
+
+    let mut proc = sidecar.process.lock().unwrap();
+    if let Some(ref mut child) = *proc {
+        let _ = child.kill();
+        let _ = child.wait();
+        *proc = None;
+        log::info!("Sidecar stopped");
+        Ok("stopped".to_string())
+    } else {
+        Ok("not_running".to_string())
+    }
+}
+
 /// Get global hotkey registration status.
 #[tauri::command]
 fn get_hotkey_status(state: tauri::State<'_, HotkeyState>) -> Result<serde_json::Value, String> {
@@ -489,6 +507,7 @@ pub fn run() {
             get_os_username,
             get_sidecar_status,
             restart_sidecar,
+            stop_sidecar,
             get_hotkey_status,
             get_autostart_enabled,
             set_autostart_enabled,

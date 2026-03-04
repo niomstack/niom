@@ -41,11 +41,18 @@ app.use("*", logger());
 app.use(
     "*",
     cors({
-        origin: [
-            "http://localhost:1420", // Vite dev server
-            "tauri://localhost",     // Tauri production
-            "https://tauri.localhost",
-        ],
+        origin: (origin) => {
+            // Allow all localhost / tauri origins — sidecar only binds to 127.0.0.1
+            if (!origin) return origin;  // non-browser requests (curl, etc.)
+            if (
+                origin.includes("localhost") ||
+                origin.includes("127.0.0.1") ||
+                origin.startsWith("tauri://")
+            ) {
+                return origin;
+            }
+            return undefined; // block everything else
+        },
         allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allowHeaders: ["Content-Type"],
     })

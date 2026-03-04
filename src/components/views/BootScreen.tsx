@@ -122,11 +122,11 @@ export function BootScreen({ sidecarUrl, appVersion, onReady }: BootScreenProps)
                 onReady();
             } catch {
                 // Still booting — keep polling
-                if (attemptCountRef.current > 30) {
-                    // ~30 seconds of trying — show error
+                if (attemptCountRef.current > 60) {
+                    // ~60 seconds of trying — show error
                     advanceStep("sidecar", "error", "Connection failed");
                     setErrorMessage(
-                        "Could not connect to the AI engine. The sidecar may have failed to start. Check logs at ~/.niom/"
+                        "Could not connect to the AI engine. The sidecar may have failed to start. Check logs at ~/.niom/sidecar.log"
                     );
                 }
             }

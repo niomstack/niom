@@ -77,10 +77,29 @@ fn spawn_sidecar() -> Option<Child> {
         return None;
     }
 
+    // Create sidecar log file — captures stdout/stderr so crashes are debuggable
+    let log_dir = config::data_dir();
+    let sidecar_log_path = log_dir.join("sidecar.log");
+    let log_file = std::fs::File::create(&sidecar_log_path)
+        .map(|f| {
+            log::info!("Sidecar log: {:?}", sidecar_log_path);
+            f
+        })
+        .ok();
+
     let mut cmd = Command::new(&paths.node_bin);
-    cmd.arg(&paths.script)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
+    cmd.arg(&paths.script);
+
+    // Redirect stdout/stderr to the log file (or inherit if file creation fails)
+    if let Some(f) = log_file {
+        let stderr_file = f
+            .try_clone()
+            .unwrap_or_else(|_| std::fs::File::create(&sidecar_log_path).expect("sidecar log"));
+        cmd.stdout(f).stderr(stderr_file);
+    } else {
+        cmd.stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+    }
 
     // Set working directory so relative paths resolve correctly
     if let Some(cwd) = &paths.working_dir {

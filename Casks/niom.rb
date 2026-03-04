@@ -6,14 +6,14 @@
 #   brew install --cask niom
 
 cask "niom" do
-  version "0.1.6"
+  version "0.1.7"
 
   if Hardware::CPU.intel?
     url "https://github.com/niomstack/niom/releases/download/niom-v#{version}/niom_#{version}_x64.dmg"
-    sha256 "32fe9c408b2f2de80056634a4e2cf3da9c3280fdb418ad90b349cbca284e53f6"
+    sha256 "8e1f668d0abb6dc08bdf8da60b313fe130aaff484599f40255b0f1f0949ea0d9"
   else
     url "https://github.com/niomstack/niom/releases/download/niom-v#{version}/niom_#{version}_aarch64.dmg"
-    sha256 "6bc789199c27669ecff073516f3ec2a9ce4436864e094788f733915630b6ea35"
+    sha256 "df7d72afd74c8d744bd7913456577d7097a97091d24fec991a80c572ca1e329c"
   end
 
   name "NIOM"

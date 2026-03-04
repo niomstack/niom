@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.5](https://github.com/niomstack/niom/compare/niom-v0.1.4...niom-v0.1.5) (2026-03-04)
+
+
+### Bug Fixes
+
+* update CORS rules to allow sidecar comms ([39b8761](https://github.com/niomstack/niom/commit/39b87616dae2859320c27c96f0ee75fbfacd2e46))
+
 ## [0.1.4](https://github.com/niomstack/niom/compare/niom-v0.1.3...niom-v0.1.4) (2026-03-04)
 
 

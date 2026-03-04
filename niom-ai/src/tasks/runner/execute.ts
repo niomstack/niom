@@ -21,7 +21,7 @@
  *   - The ToolHealthMonitor prevents infinite tool loops within a single run
  */
 
-import { generateText, stepCountIs } from "ai";
+import { generateText, stepCountIs, type ModelMessage } from "ai";
 import { getModel } from "../../ai/providers.js";
 import { SkillPathResolver } from "../../skills/traversal.js";
 import { routeFromSkillPath } from "../../skills/router.js";
@@ -32,6 +32,9 @@ import { TaskManager } from "../manager.js";
 import { buildTaskSystemPrompt, TASK_STEP_LIMIT } from "./prompt.js";
 import { updateTaskMemory } from "./memory.js";
 import { emit } from "./events.js";
+import { getContextBudget } from "../../ai/tokens.js";
+import { compressContext, logCompression } from "../../ai/context-window.js";
+import { logger } from "../../ai/logger.js";
 
 import type { BackgroundTask, TaskRun, TaskPhase } from "../types.js";
 
@@ -52,11 +55,15 @@ export async function executeTask(task: BackgroundTask): Promise<TaskRun> {
 
     const config = loadConfig();
     const model = getModel(config);
+    const modelId = config.model || "gpt-4o-mini";
+    const contextBudget = getContextBudget(modelId);
     const agentContext = buildAgentContext({ threadId: task.threadId });
-    agentContext.taskId = task.id; // Tag context with task ID for artifact linking
+    agentContext.taskId = task.id;
     const contextPreamble = formatContextPreamble(agentContext);
     const systemPrompt = buildTaskSystemPrompt(task, contextPreamble);
-    const messages = buildMessages(task, runNumber);
+    const messages = buildMessages(task, runNumber) as ModelMessage[];
+
+    logger.info("task", `Task ${task.id.slice(0, 8)} run #${runNumber}: "${task.goal.slice(0, 80)}"`);
 
     // ── Phase tracking ──
 
@@ -123,10 +130,17 @@ export async function executeTask(task: BackgroundTask): Promise<TaskRun> {
             temperature: 0.4,
             experimental_context: agentContext,
 
-            // Self-healing: detect loops and disable failing tools
-            prepareStep({ stepNumber }: { stepNumber: number }) {
+            // Self-healing + context compression
+            prepareStep({ stepNumber, messages: stepMsgs }: { stepNumber: number; messages: ModelMessage[] }) {
                 const check = health.check(stepNumber);
                 const out: Record<string, unknown> = {};
+
+                // Context compression — prevent exceeding model limits
+                const compression = compressContext(stepMsgs, contextBudget);
+                if (compression.stages.length > 0) {
+                    logCompression(compression);
+                    out.messages = compression.messages;
+                }
 
                 if (check.systemSuffix) {
                     out.system = systemPrompt + check.systemSuffix;
@@ -138,6 +152,7 @@ export async function executeTask(task: BackgroundTask): Promise<TaskRun> {
                 if (check.shouldAbort) {
                     healthAborted = true;
                     console.warn(`[runner] ${task.id.slice(0, 8)} — ABORTING: ${check.abortReason}`);
+                    logger.warn("task", `Task ${task.id.slice(0, 8)} aborted: ${check.abortReason}`);
                 }
 
                 return out;
@@ -182,6 +197,10 @@ export async function executeTask(task: BackgroundTask): Promise<TaskRun> {
                 });
 
                 recordToolUse(toolName);
+                logger.toolCall(success ? "complete" : "error", toolName, {
+                    taskId: task.id,
+                    ...(errorMsg ? { error: errorMsg } : {}),
+                });
                 emit({
                     type: "task:tool",
                     taskId: task.id,
@@ -273,12 +292,19 @@ export async function executeTask(task: BackgroundTask): Promise<TaskRun> {
             `[runner] ${task.id.slice(0, 8)} — run #${runNumber} ${runStatus}` +
             ` (${((completedAt - startedAt) / 1000).toFixed(1)}s, ${toolCalls.length} tools, ${successfulTools} ok)`
         );
+        logger.info("task", `Task ${task.id.slice(0, 8)} run #${runNumber} ${runStatus}`, {
+            durationMs: completedAt - startedAt,
+            toolCount: toolCalls.length,
+            successCount: successfulTools,
+            qualityScore,
+        });
 
         return run;
 
     } catch (err: any) {
         const completedAt = Date.now();
         console.error(`[runner] ${task.id.slice(0, 8)} — run #${runNumber} failed:`, err.message);
+        logger.error("task", `Task ${task.id.slice(0, 8)} run #${runNumber} failed: ${err.message}`);
         emit({ type: "task:error", taskId: task.id, runId, error: err.message });
 
         for (const phase of phases) {

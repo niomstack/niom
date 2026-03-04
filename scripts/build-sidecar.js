@@ -196,6 +196,14 @@ async function main() {
     cpSync(join(SIDECAR_DIR, "dist"), join(BUNDLE_DIR, "dist"), { recursive: true });
     cpSync(join(SIDECAR_DIR, "package.json"), join(BUNDLE_DIR, "package.json"));
 
+    // Copy built-in skill packs (.md files — not bundled by tsup)
+    const packsDir = join(SIDECAR_DIR, "src", "skills", "packs");
+    const bundlePacksDir = join(BUNDLE_DIR, "dist", "packs");
+    if (existsSync(packsDir)) {
+        cpSync(packsDir, bundlePacksDir, { recursive: true });
+        console.log(`  ✓ Copied built-in skill packs to dist/packs/`);
+    }
+
     // Step 4: Install production deps directly in bundle (npm for flat, portable node_modules)
     console.log("\n[4/4] Installing production dependencies in bundle...");
     // npm gives us a flat node_modules without pnpm's symlink store structure

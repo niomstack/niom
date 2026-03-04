@@ -25,6 +25,9 @@ import { MemoryStore } from "../memory/store.js";
 import { SkillPathResolver, type SkillPath } from "../skills/traversal.js";
 import { routeFromSkillPath } from "../skills/router.js";
 import type { ResolvedSkillPack } from "../skills/types.js";
+import { getContextBudget } from "./tokens.js";
+import { compressContext, logCompression } from "./context-window.js";
+import { logger } from "./logger.js";
 
 // ── System Prompt (base) ──
 // Personality + rules are static. Skill Pack prompts inject domain-specific behavior.
@@ -151,6 +154,8 @@ Do NOT stop after just listing files or reading code. Complete the actual goal.`
 export async function runAgent(request: RunRequest): Promise<any> {
     const config = loadConfig();
     const model = getModel(config);
+    const modelId = config.model || "gpt-4o-mini";
+    const contextBudget = getContextBudget(modelId);
 
     const ctx = request.context || {};
     const normalizedContext = {
@@ -177,6 +182,15 @@ export async function runAgent(request: RunRequest): Promise<any> {
     // ── Build prompt ──
     const systemPrompt = buildSystemPrompt(path, contextPreamble, pack);
 
+    // ── Compress context to fit model limits ──
+    const compression = compressContext(request.messages, contextBudget);
+    logCompression(compression);
+    if (compression.stages.length > 0) {
+        logger.compression(compression.originalTokens, compression.compressedTokens, compression.stages.map(s => s.name));
+    }
+    const messages = compression.messages;
+
+    logger.route(path.executionMode, path.primaryDomain, pack.name, Object.keys(pack.tools).length, path.traversalMs);
     console.log(`[engine] ${path.executionMode}/${path.primaryDomain} → ${pack.name} Pack (${Object.keys(pack.tools).length} tools, ${path.stepBudget} steps, ${path.traversalMs}ms) | goal: "${path.goal.slice(0, 60)}"`);
 
     // ── Route by execution mode ──
@@ -188,23 +202,24 @@ export async function runAgent(request: RunRequest): Promise<any> {
 
     // Generate mode: generateText for reasoning, then stream final response
     if (path.executionMode === "generate") {
-        return runGenerateTask(request, path, systemPrompt, model, agentContext, pack);
+        return runGenerateTask({ ...request, messages }, path, systemPrompt, model, agentContext, pack, contextBudget);
     }
 
     // Stream mode: direct streamText (simple/standard)
     return streamText({
         model,
         system: systemPrompt,
-        messages: request.messages,
+        messages,
         tools: pack.tools,
         stopWhen: stepCountIs(path.stepBudget),
         temperature: 0.3,
         experimental_context: agentContext,
         experimental_onToolCallFinish({ toolCall }: { toolCall: { toolName: string } }) {
             recordToolUse(toolCall.toolName);
+            logger.toolCall("complete", toolCall.toolName);
         },
-        prepareStep({ stepNumber, messages }: { stepNumber: number; messages: ModelMessage[] }) {
-            return buildPrepareStepResult(stepNumber, messages, pack.tools);
+        prepareStep({ stepNumber, messages: stepMsgs }: { stepNumber: number; messages: ModelMessage[] }) {
+            return buildPrepareStepResult(stepNumber, stepMsgs, pack.tools, contextBudget);
         },
     });
 }
@@ -224,6 +239,7 @@ async function runGenerateTask(
     model: ReturnType<typeof getModel>,
     agentContext: ReturnType<typeof buildAgentContext>,
     pack: ResolvedSkillPack,
+    contextBudget: number,
 ) {
     console.log(`[engine] Generate mode — ${path.stepBudget} step budget`);
     request.onProgress?.(`Thinking (${path.stepBudget} step budget)…`);
@@ -241,12 +257,14 @@ async function runGenerateTask(
         experimental_onToolCallFinish({ toolCall }: { toolCall: { toolName: string } }) {
             recordToolUse(toolCall.toolName);
             toolStep++;
-            // Emit human-friendly tool name to keep user informed
             const friendly = toolCall.toolName
                 .replace(/([A-Z])/g, " $1")
                 .replace(/^./, s => s.toUpperCase())
                 .trim();
             request.onProgress?.(`Step ${toolStep}: ${friendly}`);
+        },
+        prepareStep({ stepNumber, messages: stepMsgs }: { stepNumber: number; messages: ModelMessage[] }) {
+            return buildPrepareStepResult(stepNumber, stepMsgs, pack.tools, contextBudget);
         },
     });
 
@@ -254,20 +272,24 @@ async function runGenerateTask(
     console.log(`[engine] Generate complete, streaming final response`);
     request.onProgress?.("Composing response…");
 
+    // Compress the summary messages too
+    const summaryMessages: ModelMessage[] = [
+        ...request.messages,
+        { role: "assistant" as const, content: result.text || "I completed the task." },
+        { role: "user" as const, content: "Please summarize what you accomplished." },
+    ];
+    const summaryCompressed = compressContext(summaryMessages, contextBudget);
+
     return streamText({
         model,
         system: systemPrompt,
-        messages: [
-            ...request.messages,
-            { role: "assistant" as const, content: result.text || "I completed the task." },
-            { role: "user" as const, content: "Please summarize what you accomplished." },
-        ],
+        messages: summaryCompressed.messages,
         tools: pack.tools,
-        stopWhen: stepCountIs(5), // Short follow-up
+        stopWhen: stepCountIs(5),
         temperature: 0.3,
         experimental_context: agentContext,
         prepareStep({ stepNumber, messages: stepMessages }: { stepNumber: number; messages: ModelMessage[] }) {
-            return buildPrepareStepResult(stepNumber, stepMessages, pack.tools);
+            return buildPrepareStepResult(stepNumber, stepMessages, pack.tools, contextBudget);
         },
     });
 }
@@ -412,15 +434,18 @@ function buildPrepareStepResult(
     stepNumber: number,
     messages: ModelMessage[],
     packTools: Record<string, any>,
+    contextBudget: number,
 ): Record<string, unknown> {
     const result: Record<string, unknown> = {};
 
-    // Compress long conversation history
-    if (messages.length > 30) {
-        result.messages = [
-            messages[0],
-            ...messages.slice(-15),
-        ];
+    // ── Context window management ──
+    // Compress messages between steps to stay within model limits.
+    // This is critical for multi-step tool-heavy flows where each step
+    // adds tool call + tool result messages.
+    const compression = compressContext(messages, contextBudget);
+    if (compression.stages.length > 0) {
+        logCompression(compression);
+        result.messages = compression.messages;
     }
 
     // Dynamic tool adjustment: after step 10, remove web tools

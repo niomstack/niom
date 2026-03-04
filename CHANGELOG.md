@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.7](https://github.com/niomstack/niom/compare/niom-v0.1.6...niom-v0.1.7) (2026-03-04)
+
+
+### Bug Fixes
+
+* add auto start feature ([d7c0b52](https://github.com/niomstack/niom/commit/d7c0b5230741e56470f72546f0f68c3680181c2e))
+
 ## [0.1.6](https://github.com/niomstack/niom/compare/niom-v0.1.5...niom-v0.1.6) (2026-03-04)
 
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/niomstack/niom/compare/niom-v0.1.2...niom-v0.1.3) (2026-03-04)
+
+
+### Bug Fixes
+
+* update sidecar config, add skill tree traversal ([7b87019](https://github.com/niomstack/niom/commit/7b87019d38416bd59c93e95bc3495c58f2d2c49a))
+
 ## [0.1.2](https://github.com/niomstack/niom/compare/niom-v0.1.1...niom-v0.1.2) (2026-03-02)
 
 

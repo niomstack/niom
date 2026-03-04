@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/niomstack/niom/compare/niom-v0.1.3...niom-v0.1.4) (2026-03-04)
+
+
+### Bug Fixes
+
+* add bootscreen to load niom during start ([01a9472](https://github.com/niomstack/niom/commit/01a9472021f46f8cbfc043e851ff84c123d2d86c))
+
 ## [0.1.3](https://github.com/niomstack/niom/compare/niom-v0.1.2...niom-v0.1.3) (2026-03-04)
 
 

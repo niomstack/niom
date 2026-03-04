@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.6](https://github.com/niomstack/niom/compare/niom-v0.1.5...niom-v0.1.6) (2026-03-04)
+
+
+### Bug Fixes
+
+* use context management, message sanitization ([43d4211](https://github.com/niomstack/niom/commit/43d421103705a8c306556bac04188e64ab20c36a))
+
 ## [0.1.5](https://github.com/niomstack/niom/compare/niom-v0.1.4...niom-v0.1.5) (2026-03-04)
 
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.9](https://github.com/niomstack/niom/compare/niom-v0.1.8...niom-v0.1.9) (2026-03-05)
+
+
+### Bug Fixes
+
+* restore conversations after update ([45ae737](https://github.com/niomstack/niom/commit/45ae737cacb688cdb81a0ecf73c45fa6865bac09))
+
 ## [0.1.8](https://github.com/niomstack/niom/compare/niom-v0.1.7...niom-v0.1.8) (2026-03-04)
 
 

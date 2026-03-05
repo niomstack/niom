@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.10](https://github.com/niomstack/niom/compare/niom-v0.1.9...niom-v0.1.10) (2026-03-05)
+
+
+### Bug Fixes
+
+* increase chat input visibility ([23d93b3](https://github.com/niomstack/niom/commit/23d93b3c6166a5a12f806f9897a80c13cb85bb1f))
+
 ## [0.1.9](https://github.com/niomstack/niom/compare/niom-v0.1.8...niom-v0.1.9) (2026-03-05)
 
 

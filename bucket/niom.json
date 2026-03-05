@@ -1,12 +1,12 @@
 {
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "NIOM — Neural Interface Operating Model. Ambient AI Desktop Assistant.",
   "homepage": "https://niom.dev",
   "license": "AGPL-3.0",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/niomstack/niom/releases/download/niom-v0.1.8/niom_0.1.8_x64-setup.exe#/setup.exe",
-      "hash": "8fee0b6a44bcf0f64e40340aaac0b9d8977f11cfcee4f676fe9440b5afec9a8f"
+      "url": "https://github.com/niomstack/niom/releases/download/niom-v0.1.9/niom_0.1.9_x64-setup.exe#/setup.exe",
+      "hash": "1277916f4019e3bca6277bfb70d740d010d48497cfa18acc7f0ea6d9caa33999"
     }
   },
   "installer": {

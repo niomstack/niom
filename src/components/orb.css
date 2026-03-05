@@ -45,7 +45,9 @@
 
 .orb-blob {
     transform-origin: center;
-    animation: orb-blob-morph 6s ease-in-out infinite alternate;
+    animation:
+        orb-blob-morph 20s ease-in-out infinite,
+        orb-blob-drift 14s ease-in-out infinite alternate;
 }
 
 @keyframes orb-blob-morph {
@@ -56,32 +58,97 @@
         cy: 148;
     }
 
-    25% {
-        rx: 80;
-        ry: 95;
-        cx: 155;
-        cy: 145;
+    8% {
+        rx: 82;
+        ry: 93;
+        cx: 158;
+        cy: 142;
     }
 
-    50% {
-        rx: 92;
-        ry: 82;
-        cx: 148;
+    18% {
+        rx: 95;
+        ry: 78;
+        cx: 140;
+        cy: 158;
+    }
+
+    28% {
+        rx: 78;
+        ry: 92;
+        cx: 155;
+        cy: 140;
+    }
+
+    38% {
+        rx: 93;
+        ry: 84;
+        cx: 143;
         cy: 155;
     }
 
-    75% {
-        rx: 85;
-        ry: 90;
+    48% {
+        rx: 84;
+        ry: 96;
+        cx: 160;
+        cy: 145;
+    }
+
+    58% {
+        rx: 92;
+        ry: 80;
+        cx: 138;
+        cy: 152;
+    }
+
+    68% {
+        rx: 86;
+        ry: 94;
+        cx: 152;
+        cy: 138;
+    }
+
+    80% {
+        rx: 96;
+        ry: 82;
         cx: 142;
-        cy: 150;
+        cy: 156;
+    }
+
+    90% {
+        rx: 80;
+        ry: 90;
+        cx: 156;
+        cy: 144;
     }
 
     100% {
-        rx: 88;
-        ry: 87;
-        cx: 150;
-        cy: 146;
+        rx: 90;
+        ry: 85;
+        cx: 145;
+        cy: 148;
+    }
+}
+
+/* Slow organic rotation layered on top */
+@keyframes orb-blob-drift {
+    0% {
+        transform: rotate(0deg) scale(1);
+    }
+
+    25% {
+        transform: rotate(3deg) scale(1.02);
+    }
+
+    50% {
+        transform: rotate(-2deg) scale(0.98);
+    }
+
+    75% {
+        transform: rotate(4deg) scale(1.01);
+    }
+
+    100% {
+        transform: rotate(-3deg) scale(0.99);
     }
 }
 

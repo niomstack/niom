@@ -439,61 +439,79 @@ export function TasksView({ onBack, initialTaskId }: TasksViewProps) {
                     )}
                 </ScrollArea>
 
-                {/* Steering input — always visible at bottom */}
+                {/* Steering input — consistent with WorkspaceView footer */}
                 {taskDetail.status !== "done" && (
-                    <div className="px-5 py-3 border-t border-border-subtle/50 shrink-0">
-                        <div className="flex items-center gap-2">
-                            <MessageCircle className="w-4 h-4 text-text-muted shrink-0" />
-                            <input
-                                className="flex-1 bg-surface-card border border-border-subtle px-3 py-2 text-[11px] text-text-primary outline-none focus:border-accent/40 font-mono transition-colors"
-                                placeholder="Steer this task… e.g. 'Focus more on performance'"
-                                value={steerComment}
-                                onChange={e => setSteerComment(e.target.value)}
-                                onKeyDown={e => {
-                                    if (e.key === "Enter" && steerComment.trim()) {
-                                        handleSteer(taskDetail.id, steerComment.trim());
-                                        setSteerComment("");
-                                    }
-                                }}
-                            />
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon-sm"
-                                        onClick={() => {
-                                            if (steerComment.trim()) {
+                    <div className="shrink-0 border-t border-accent/[0.15] bg-surface-base/95 backdrop-blur-sm">
+                        <div className="flex items-center h-12 px-4 gap-3">
+                            <div className="flex-1 flex justify-center">
+                                <div className="w-full max-w-4xl group relative flex items-center bg-surface-card/70 border border-accent/25 hover:border-accent/50 focus-within:border-accent/60 focus-within:shadow-[0_0_20px_rgba(91,63,230,0.12)] transition-all duration-300 rounded-sm">
+                                    {/* Edge glow */}
+                                    <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/0 to-transparent group-focus-within:via-accent/50 transition-all duration-500" />
+
+                                    {/* Dot + icon */}
+                                    <div className="pl-3 pr-1.5 flex items-center gap-1.5">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-accent/50 group-focus-within:bg-accent group-focus-within:shadow-[0_0_6px_rgba(91,63,230,0.5)] transition-all duration-300" />
+                                        <MessageCircle className="w-3.5 h-3.5 text-text-muted group-focus-within:text-accent/70 transition-colors duration-300" />
+                                    </div>
+
+                                    <input
+                                        className="flex-1 py-2 bg-transparent border-none outline-none text-text-primary text-[12px] font-mono tracking-tight placeholder:text-text-tertiary transition-colors"
+                                        placeholder="Steer this task — e.g. 'Focus on performance' or 'Skip the edge cases'"
+                                        value={steerComment}
+                                        onChange={e => setSteerComment(e.target.value)}
+                                        onKeyDown={e => {
+                                            if (e.key === "Enter" && steerComment.trim()) {
                                                 handleSteer(taskDetail.id, steerComment.trim());
                                                 setSteerComment("");
                                             }
                                         }}
-                                        disabled={!steerComment.trim() || actionLoading === `${taskDetail.id}:steer`}
-                                        className="hover:bg-accent/10 hover:text-accent"
-                                    >
-                                        <Send className="w-3.5 h-3.5" />
-                                    </Button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top">Send feedback</TooltipContent>
-                            </Tooltip>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon-sm"
-                                        onClick={() => {
-                                            if (steerComment.trim()) {
-                                                handleSteer(taskDetail.id, steerComment.trim(), true);
-                                                setSteerComment("");
-                                            }
-                                        }}
-                                        disabled={!steerComment.trim() || actionLoading === `${taskDetail.id}:steer`}
-                                        className="hover:bg-emerald-600/10 hover:text-emerald-600"
-                                    >
-                                        <Zap className="w-3.5 h-3.5" />
-                                    </Button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top">Send & Run Now</TooltipContent>
-                            </Tooltip>
+                                    />
+
+                                    {/* Action buttons — visible when there's text */}
+                                    {steerComment.trim() && (
+                                        <div className="flex items-center gap-1 pr-2">
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon-sm"
+                                                        onClick={() => {
+                                                            if (steerComment.trim()) {
+                                                                handleSteer(taskDetail.id, steerComment.trim());
+                                                                setSteerComment("");
+                                                            }
+                                                        }}
+                                                        disabled={actionLoading === `${taskDetail.id}:steer`}
+                                                        className="hover:bg-accent/10 hover:text-accent h-6 w-6"
+                                                    >
+                                                        <Send className="w-3.5 h-3.5" />
+                                                    </Button>
+                                                </TooltipTrigger>
+                                                <TooltipContent side="top">Send feedback</TooltipContent>
+                                            </Tooltip>
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon-sm"
+                                                        onClick={() => {
+                                                            if (steerComment.trim()) {
+                                                                handleSteer(taskDetail.id, steerComment.trim(), true);
+                                                                setSteerComment("");
+                                                            }
+                                                        }}
+                                                        disabled={actionLoading === `${taskDetail.id}:steer`}
+                                                        className="hover:bg-emerald-600/10 hover:text-emerald-600 h-6 w-6"
+                                                    >
+                                                        <Zap className="w-3.5 h-3.5" />
+                                                    </Button>
+                                                </TooltipTrigger>
+                                                <TooltipContent side="top">Send & Run Now</TooltipContent>
+                                            </Tooltip>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
                         </div>
                     </div>
                 )}

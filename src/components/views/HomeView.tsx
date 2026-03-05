@@ -369,24 +369,27 @@ export function HomeView({
                 </div>
             </div>
 
-            {/* ══ PROMPT INPUT — floating above footer ══ */}
-            <div className="fixed bottom-14 left-1/2 -translate-x-1/2 z-30 w-[520px]">
+            {/* ══ PROMPT INPUT — prominent chat bar ══ */}
+            <div className="fixed bottom-14 left-1/2 -translate-x-1/2 z-30 w-[640px] max-w-[90%]">
+                {/* Ambient glow behind the bar */}
+                <div className="absolute -inset-3 bg-accent/[0.04] blur-2xl rounded-2xl pointer-events-none group-focus-within:bg-accent/[0.08] transition-all duration-700" />
+
                 {/* Corner brackets */}
                 <div className="absolute -top-2 -right-2 w-4 h-4 border-r border-t border-accent/40" />
                 <div className="absolute -bottom-2 -left-2 w-4 h-4 border-l border-b border-accent/40" />
 
-                <div className="group relative flex items-center bg-surface-base/95 backdrop-blur-md border border-border-subtle/30 hover:border-accent/20 focus-within:border-accent/30 transition-all duration-300">
+                <div className="group relative flex items-center bg-surface-base/95 backdrop-blur-md border border-accent/25 hover:border-accent/50 focus-within:border-accent/60 focus-within:shadow-[0_0_30px_rgba(91,63,230,0.12)] transition-all duration-300 rounded-sm">
                     {/* Glass overlay */}
-                    <div className="absolute inset-0 bg-gradient-to-r from-[rgba(91,63,230,0.02)] via-transparent to-[rgba(91,63,230,0.02)] pointer-events-none" />
-                    <div className="absolute inset-px border border-white/[0.03] pointer-events-none" />
+                    <div className="absolute inset-0 bg-gradient-to-r from-[rgba(91,63,230,0.03)] via-transparent to-[rgba(91,63,230,0.03)] pointer-events-none rounded-sm" />
+                    <div className="absolute inset-px border border-white/[0.04] pointer-events-none rounded-sm" />
 
                     {/* Edge glow on focus */}
-                    <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/0 to-transparent group-focus-within:via-accent/50 transition-all duration-500" />
-                    <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-accent/0 to-transparent group-focus-within:via-accent/20 transition-all duration-500" />
+                    <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/0 to-transparent group-focus-within:via-accent/60 transition-all duration-500" />
+                    <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-accent/0 to-transparent group-focus-within:via-accent/25 transition-all duration-500" />
 
                     {/* Sparkle icon */}
-                    <div className="relative pl-4 pr-2 flex items-center justify-center text-text-tertiary group-focus-within:text-accent/70 transition-colors">
-                        <Sparkles className="w-4 h-4" />
+                    <div className="relative pl-5 pr-3 flex items-center justify-center text-text-tertiary group-focus-within:text-accent transition-colors duration-300">
+                        <Sparkles className="w-5 h-5" />
                     </div>
 
                     {/* Input */}
@@ -400,15 +403,15 @@ export function HomeView({
                                 startConversation(query.trim());
                             }
                         }}
-                        className="relative flex-1 py-3 bg-transparent border-none outline-none text-text-primary text-[13px] font-mono tracking-tight placeholder:text-text-tertiary"
-                        placeholder="Ask NIOM anything…"
+                        className="relative flex-1 py-4 bg-transparent border-none outline-none text-text-primary text-[14px] font-mono tracking-tight placeholder:text-text-tertiary"
+                        placeholder="What can I help you with? Try 'search for…' or 'write a…'"
                     />
 
                     {/* Submit button — appears when there's text */}
                     {query.trim() && (
                         <button
                             onClick={() => startConversation(query.trim())}
-                            className="relative mr-2 w-7 h-7 flex items-center justify-center bg-accent text-white border-none cursor-pointer hover:brightness-110 transition-all"
+                            className="relative mr-3 w-8 h-8 flex items-center justify-center bg-accent text-white border-none cursor-pointer hover:brightness-110 hover:scale-105 transition-all rounded-sm"
                         >
                             <ArrowUp className="w-4 h-4" />
                         </button>
@@ -416,8 +419,8 @@ export function HomeView({
 
                     {/* Shortcut hint — hidden when focused */}
                     {!query && (
-                        <div className="relative pr-4 group-focus-within:opacity-0 transition-opacity">
-                            <span className="text-[9px] font-mono text-text-tertiary tracking-wider">⌘K</span>
+                        <div className="relative pr-5 group-focus-within:opacity-0 transition-opacity duration-300">
+                            <span className="text-[10px] font-mono text-text-muted/50 tracking-wider bg-surface-card/80 px-2 py-1 border border-border-subtle/30 rounded-sm">⌘K</span>
                         </div>
                     )}
                 </div>
@@ -442,14 +445,24 @@ export function HomeView({
                         ))}
                     </div>
 
-                    {/* Center — platform tags */}
-                    <div className="flex items-center gap-2">
-                        {["macOS", "Windows", "Linux"].map(p => (
-                            <div key={p} className="group flex items-center gap-1.5 px-2.5 py-0.5 bg-accent/[0.08] border border-accent/[0.2] hover:bg-accent/[0.18] hover:border-accent/40 cursor-default transition-all">
-                                <div className="w-1 h-1 rounded-full bg-accent/70 group-hover:bg-accent group-hover:shadow-[0_0_6px_rgba(91,63,230,0.5)] transition-all" />
-                                <span className="text-[9px] font-mono uppercase tracking-[0.2em] text-text-tertiary group-hover:text-accent transition-colors">{p}</span>
-                            </div>
-                        ))}
+                    {/* Center — live system status */}
+                    <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-1.5">
+                            <div className="w-1 h-1 rounded-full bg-emerald-500 shadow-[0_0_4px_rgba(34,197,94,0.5)]" />
+                            <span className="text-[9px] font-mono uppercase tracking-[0.15em] text-text-tertiary">
+                                {sidecarModel || "no model"}
+                            </span>
+                        </div>
+                        <span className="text-[9px] text-text-muted">·</span>
+                        <span className="text-[9px] font-mono text-text-tertiary tracking-wider">
+                            {sidecarUptime > 0
+                                ? `${Math.floor(sidecarUptime / 3600000)}h ${Math.floor((sidecarUptime % 3600000) / 60000)}m uptime`
+                                : "starting…"}
+                        </span>
+                        <span className="text-[9px] text-text-muted">·</span>
+                        <span className="text-[9px] font-mono text-text-tertiary tracking-wider">
+                            {threads.length} {threads.length === 1 ? "conversation" : "conversations"}
+                        </span>
                     </div>
 
                     {/* Right — copyright */}

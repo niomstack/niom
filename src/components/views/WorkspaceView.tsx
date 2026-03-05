@@ -605,7 +605,7 @@ export function WorkspaceView({ onBack, initialQuery, threadState, onViewTask }:
     const hasMessages = messages.length > 0;
 
     return (
-        <div className="flex flex-col h-full">
+        <div className="flex flex-col h-full overflow-hidden">
             {/* ── Header ── */}
             <div className="flex items-center gap-3 px-5 py-3 border-b border-border-subtle/50 shrink-0">
                 <button
@@ -867,13 +867,13 @@ export function WorkspaceView({ onBack, initialQuery, threadState, onViewTask }:
             )}
 
             {/* ══════════════════════════════════════════════
-                FOOTER — full width, fixed to bottom
+                FOOTER — full width chat input
                ══════════════════════════════════════════════ */}
-            <div className="shrink-0 border-t border-accent/[0.12] bg-surface-base/95 backdrop-blur-sm">
-                <div className="flex items-center h-14 px-6 gap-5">
+            <div className="shrink-0 border-t border-accent/[0.15] bg-surface-base/95 backdrop-blur-sm">
+                <div className="flex items-center h-12 px-4 gap-3">
 
-                    {/* ── LEFT: Model + Terminal ── */}
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    {/* LEFT: Model + Terminal */}
+                    <div className="flex items-center gap-1 shrink-0">
                         <Tooltip>
                             <TooltipTrigger asChild>
                                 <Button variant="ghost" size="icon-sm" className="hover:bg-accent/10 hover:text-accent">
@@ -896,18 +896,18 @@ export function WorkspaceView({ onBack, initialQuery, threadState, onViewTask }:
                         </Tooltip>
                     </div>
 
-                    {/* ── CENTER: Prompt ── */}
+                    {/* CENTER: Chat input */}
                     <div className="flex-1 flex justify-center">
-                        <div className="w-full max-w-[33.333%] min-w-[200px] group relative flex items-center bg-surface-card/60 border border-border-subtle/30 hover:border-accent/20 focus-within:border-accent/30 transition-all duration-300">
-                            {/* Edge glow on focus */}
-                            <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/0 to-transparent group-focus-within:via-accent/40 transition-all duration-500" />
+                        <div className="w-full max-w-4xl group relative flex items-center bg-surface-card/70 border border-accent/25 hover:border-accent/50 focus-within:border-accent/60 focus-within:shadow-[0_0_20px_rgba(91,63,230,0.12)] transition-all duration-300 rounded-sm">
+                            {/* Edge glow */}
+                            <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/0 to-transparent group-focus-within:via-accent/50 transition-all duration-500" />
 
-                            {/* Icon */}
-                            <div className="pl-3 pr-1.5 flex items-center justify-center text-text-tertiary group-focus-within:text-accent/70 transition-colors">
-                                <Sparkles className="w-3.5 h-3.5" />
+                            {/* Dot + icon */}
+                            <div className="pl-3 pr-1.5 flex items-center gap-1.5">
+                                <div className="w-1.5 h-1.5 rounded-full bg-accent/50 group-focus-within:bg-accent group-focus-within:shadow-[0_0_6px_rgba(91,63,230,0.5)] transition-all duration-300" />
+                                <Sparkles className="w-3.5 h-3.5 text-text-muted group-focus-within:text-accent/70 transition-colors duration-300" />
                             </div>
 
-                            {/* Input */}
                             <input
                                 ref={inputRef}
                                 type="text"
@@ -917,32 +917,29 @@ export function WorkspaceView({ onBack, initialQuery, threadState, onViewTask }:
                                     if (e.key === "Enter") handleSubmit();
                                 }}
                                 disabled={thinking}
-                                className="flex-1 py-2 bg-transparent border-none outline-none text-text-primary text-[11px] font-mono tracking-tight placeholder:text-text-tertiary disabled:opacity-50"
-                                placeholder={thinking ? "Agent is working…" : "Ask NIOM anything…"}
+                                className="flex-1 py-2 bg-transparent border-none outline-none text-text-primary text-[12px] font-mono tracking-tight placeholder:text-text-tertiary disabled:opacity-50"
+                                placeholder={thinking ? "Agent is working…" : "Send a message — ask questions, give instructions, or request changes"}
                             />
 
-                            {/* Submit */}
                             {query.trim() && !thinking && (
                                 <button
                                     onClick={handleSubmit}
-                                    className="mr-1.5 w-6 h-6 flex items-center justify-center bg-accent text-white border-none cursor-pointer hover:brightness-110 transition-all"
+                                    className="mr-1.5 w-6 h-6 flex items-center justify-center bg-accent text-white border-none cursor-pointer hover:brightness-110 transition-all rounded-sm"
                                 >
                                     <ArrowUp className="w-3.5 h-3.5" />
                                 </button>
                             )}
 
-                            {/* Shortcut hint */}
                             {!query && !thinking && (
-                                <div className="pr-3 group-focus-within:opacity-0 transition-opacity">
-                                    <span className="text-[8px] font-mono text-text-muted tracking-wider">⌘K</span>
+                                <div className="pr-3 group-focus-within:opacity-0 transition-opacity duration-300">
+                                    <span className="text-[8px] font-mono text-text-muted/40 tracking-wider bg-surface-card/60 px-1.5 py-0.5 border border-border-subtle/20 rounded-sm">⌘K</span>
                                 </div>
                             )}
                         </div>
                     </div>
 
-                    {/* ── RIGHT: Metrics ── */}
-                    <div className="flex items-center gap-1.5 shrink-0">
-                        {/* Uptime */}
+                    {/* RIGHT: Metrics */}
+                    <div className="flex items-center gap-1 shrink-0">
                         <Tooltip>
                             <TooltipTrigger asChild>
                                 <Button variant="ghost" size="icon-sm" className="hover:bg-accent/10 hover:text-accent">
@@ -953,8 +950,6 @@ export function WorkspaceView({ onBack, initialQuery, threadState, onViewTask }:
                                 {sidecar.status === "online" ? `Uptime: ${formatUptime(sidecar.uptime_ms)}` : "Offline"}
                             </TooltipContent>
                         </Tooltip>
-
-                        {/* Status */}
                         <Tooltip>
                             <TooltipTrigger asChild>
                                 <Button variant="ghost" size="icon-sm" className={`hover:bg-accent/10 ${sidecar.status === "online" ? "text-blue-600 hover:text-blue-600/60" : "text-red-600/60 hover:text-red-600"}`}>
@@ -965,8 +960,6 @@ export function WorkspaceView({ onBack, initialQuery, threadState, onViewTask }:
                                 Agent {sidecar.status}
                             </TooltipContent>
                         </Tooltip>
-
-                        {/* Version */}
                         <Tooltip>
                             <TooltipTrigger asChild>
                                 <Button variant="ghost" size="icon-sm" className="hover:bg-accent/10 hover:text-accent">

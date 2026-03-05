@@ -14,9 +14,14 @@
  *
  * The index is the single source of truth for listings.
  * Full data is encrypted per-item and loaded on demand.
+ *
+ * Safety features:
+ *   - Atomic writes: write to .tmp → rename (prevents corruption from mid-write kills)
+ *   - Backup-before-overwrite: corrupt index is backed up before starting fresh
+ *   - Orphan recovery: if index is empty but .enc files exist, rebuild from files
  */
 
-import { existsSync, mkdirSync, readdirSync, unlinkSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, unlinkSync, renameSync, writeFileSync, copyFileSync } from "fs";
 import { join } from "path";
 import { getDataDir } from "../config.js";
 import { encryptToFile, decryptFromFile } from "../crypto.js";
@@ -133,6 +138,7 @@ export class MemoryStore {
 
         // Load or create index
         this.loadIndex();
+        this.recoverOrphans();
         this.initialized = true;
         console.log(`[memory] Initialized — ${this.index.conversations.length} conversations, ${this.index.tasks.length} tasks, ${this.index.brain.facts.length} brain facts`);
     }
@@ -172,15 +178,36 @@ export class MemoryStore {
                 this.scheduleIndexSave();
             }
         } catch (err) {
-            console.warn("[memory] Failed to load index, starting fresh:", err);
+            console.warn("[memory] Failed to load index, attempting recovery:", err);
+
+            // SAFETY: Back up the corrupt file before overwriting.
+            // This preserves the possibility of manual recovery.
+            const backupPath = `${path}.corrupt-${Date.now()}`;
+            try {
+                copyFileSync(path, backupPath);
+                console.warn(`[memory] Corrupted index backed up to ${backupPath}`);
+            } catch { /* backup is best-effort */ }
+
             this.index = emptyIndex();
             this.saveIndexSync();
         }
     }
 
-    /** Synchronous index save (used during init/shutdown) */
+    /**
+     * Atomic index save: write to .tmp file, then rename.
+     * Prevents corruption from mid-write process kills (e.g. during updates).
+     */
     private saveIndexSync(): void {
-        encryptToFile(this.indexPath(), this.index);
+        const path = this.indexPath();
+        const tmpPath = `${path}.tmp`;
+        try {
+            encryptToFile(tmpPath, this.index);
+            renameSync(tmpPath, path);
+        } catch (err) {
+            // Fallback: direct write (rename might fail on some Windows configs)
+            console.warn("[memory] Atomic save failed, falling back to direct write:", err);
+            encryptToFile(path, this.index);
+        }
         this.indexDirty = false;
     }
 
@@ -199,6 +226,91 @@ export class MemoryStore {
             this.indexTimer = null;
         }
         if (this.indexDirty) {
+            this.saveIndexSync();
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // ORPHAN RECOVERY — Rebuild index from .enc files
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * If the index has no entries but .enc files exist on disk, we lost
+     * the index (e.g. from corruption during an update). Attempt to rebuild
+     * by decrypting each file and extracting metadata.
+     */
+    private recoverOrphans(): void {
+        this.recoverCollection("conversations");
+        this.recoverCollection("tasks");
+    }
+
+    private recoverCollection(collection: Collection): void {
+        const existing = this.index[collection] as (ConversationEntry | TaskEntry)[];
+        const dir = this.collectionDir(collection);
+
+        if (!existsSync(dir)) return;
+
+        let files: string[];
+        try {
+            files = readdirSync(dir).filter(f => f.endsWith(".enc"));
+        } catch { return; }
+
+        // Find orphans: .enc files not referenced in the index
+        const indexedIds = new Set(existing.map(e => e.id));
+        const orphanFiles = files.filter(f => {
+            const id = f.replace(".enc", "");
+            return !indexedIds.has(id);
+        });
+
+        if (orphanFiles.length === 0) return;
+
+        console.log(`[memory] Found ${orphanFiles.length} orphaned ${collection} files — recovering…`);
+        let recovered = 0;
+
+        for (const file of orphanFiles) {
+            const id = file.replace(".enc", "");
+            try {
+                const data = decryptFromFile(join(dir, file));
+
+                if (collection === "conversations") {
+                    // Rebuild conversation index entry from data
+                    const conv = data as any;
+                    const messages = conv.messages || conv.data?.messages || [];
+                    const lastMsg = messages[messages.length - 1];
+                    const entry: ConversationEntry = {
+                        id,
+                        title: conv.title || conv.data?.title || `Recovered conversation`,
+                        createdAt: conv.createdAt || conv.data?.createdAt || Date.now(),
+                        updatedAt: conv.updatedAt || conv.data?.updatedAt || Date.now(),
+                        status: conv.status || "active",
+                        messageCount: messages.length,
+                        lastMessage: lastMsg?.content?.slice?.(0, 100) || undefined,
+                    };
+                    existing.push(entry);
+                    recovered++;
+                } else {
+                    // Rebuild task index entry from data
+                    const task = data as any;
+                    const entry: TaskEntry = {
+                        id,
+                        goal: task.goal || task.data?.goal || "Recovered task",
+                        taskType: task.taskType || task.data?.taskType || "unknown",
+                        status: task.status || task.data?.status || "done",
+                        threadId: task.threadId || task.data?.threadId,
+                        totalRuns: task.totalRuns || task.data?.totalRuns || 0,
+                        createdAt: task.createdAt || task.data?.createdAt || Date.now(),
+                        updatedAt: task.updatedAt || task.data?.updatedAt || Date.now(),
+                    };
+                    existing.push(entry);
+                    recovered++;
+                }
+            } catch (err) {
+                console.warn(`[memory] Could not recover ${collection}/${id}:`, err);
+            }
+        }
+
+        if (recovered > 0) {
+            console.log(`[memory] Recovered ${recovered}/${orphanFiles.length} orphaned ${collection}`);
             this.saveIndexSync();
         }
     }

@@ -296,12 +296,38 @@ fn restart_sidecar(sidecar: tauri::State<'_, SidecarState>) -> Result<String, St
     }
 }
 
-/// Stop the sidecar process without re-spawning.
-/// Used before updates to release file locks on node.exe.
+/// Stop the sidecar process gracefully, then forcefully.
+/// Used before updates to flush pending writes and release file locks on node.exe.
 #[tauri::command]
 fn stop_sidecar(sidecar: tauri::State<'_, SidecarState>) -> Result<String, String> {
     log::info!("Sidecar stop requested (for update)");
 
+    // Step 1: Try graceful shutdown — POST /shutdown flushes all pending writes
+    let shutdown_url = format!("http://localhost:{}/shutdown", config::sidecar_port());
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(3))
+        .build();
+
+    if let Ok(c) = client {
+        match c.post(&shutdown_url).send() {
+            Ok(r) if r.status().is_success() => {
+                log::info!("Sidecar acknowledged shutdown — waiting for exit");
+                // Give it a moment to flush and exit cleanly
+                std::thread::sleep(Duration::from_millis(500));
+            }
+            Ok(r) => {
+                log::warn!(
+                    "Sidecar shutdown returned {}, proceeding to kill",
+                    r.status()
+                );
+            }
+            Err(e) => {
+                log::warn!("Sidecar shutdown request failed: {}, proceeding to kill", e);
+            }
+        }
+    }
+
+    // Step 2: Force-kill if still running
     let mut proc = sidecar.process.lock().unwrap();
     if let Some(ref mut child) = *proc {
         let _ = child.kill();

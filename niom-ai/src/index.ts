@@ -9,6 +9,19 @@ process.on("uncaughtException", (err) => {
     // Don't rethrow — keep the sidecar alive
 });
 
+// Flush MemoryStore on process signals (covers OS-level kills during updates)
+const gracefulExit = (signal: string) => {
+    console.log(`[sidecar] Received ${signal} — flushing memory…`);
+    try {
+        // Dynamic import to avoid circular dependency at module load
+        const { MemoryStore } = require("./memory/store.js");
+        MemoryStore.getInstance().shutdown();
+    } catch { /* best-effort */ }
+    process.exit(0);
+};
+process.on("SIGTERM", () => gracefulExit("SIGTERM"));
+process.on("SIGINT", () => gracefulExit("SIGINT"));
+
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";

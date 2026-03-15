@@ -32,6 +32,8 @@ const config: ForgeConfig = {
           },
         }
       : {}),
+    // Include app-update.yml for electron-updater (Forge doesn't generate it)
+    extraResource: ["./resources/app-update.yml"],
   },
   rebuildConfig: {},
   makers: [

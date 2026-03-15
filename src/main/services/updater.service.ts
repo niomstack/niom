@@ -15,6 +15,13 @@ import { ipcMain, BrowserWindow } from "electron";
 
 /** Configure and start the auto-updater. */
 export function initAutoUpdater(): void {
+  // Configure GitHub as the update provider directly (no app-update.yml needed)
+  autoUpdater.setFeedURL({
+    provider: "github",
+    owner: "niomstack",
+    repo: "niom",
+  });
+
   // Don't auto-download — let user decide
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;

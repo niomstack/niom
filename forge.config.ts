@@ -71,11 +71,11 @@ const config: ForgeConfig = {
   publishers: [
     new PublisherGithub({
       repository: {
-        owner: "open-cipher",
+        owner: "niomstack",
         name: "niom",
       },
       prerelease: false,
-      draft: true,
+      draft: false,
     }),
   ],
   plugins: [

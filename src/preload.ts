@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld("niom", {
     close: () => ipcRenderer.send("window:close"),
     isMaximized: () => ipcRenderer.invoke("window:isMaximized"),
     platform: () => ipcRenderer.invoke("window:platform"),
+    version: () => ipcRenderer.invoke("app:version") as Promise<string>,
   },
 
   // ─── Shell Helpers ──────────────────────────────────────────────

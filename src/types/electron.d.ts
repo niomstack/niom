@@ -24,6 +24,7 @@ export interface NiomAPI {
     close: () => void;
     isMaximized: () => Promise<boolean>;
     platform: () => Promise<string>;
+    version: () => Promise<string>;
   };
   shell: {
     openPath: (filePath: string) => Promise<void>;

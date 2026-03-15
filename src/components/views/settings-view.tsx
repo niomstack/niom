@@ -159,6 +159,7 @@ function SettingsView({ onBack }: SettingsViewProps) {
   // NCF stats
   const [stats, setStats] = useState<NCFStatsPayload | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
+  const [appVersion, setAppVersion] = useState<string>("");
 
   // Context view mode (lifted up for fullscreen graph)
   const [contextView, setContextView] = useState<"dashboard" | "graph">("dashboard");
@@ -167,6 +168,7 @@ function SettingsView({ onBack }: SettingsViewProps) {
   // Load config on mount
   useEffect(() => {
     loadConfig();
+    window.niom?.window?.version?.().then(setAppVersion).catch(() => {});
   }, []);
 
   // Load memory data when switching to memory tab
@@ -494,7 +496,7 @@ function SettingsView({ onBack }: SettingsViewProps) {
             {/* About — always at bottom */}
             <div className="border-t border-border pt-4 space-y-2">
               <p className="text-center font-mono text-[0.6rem] uppercase tracking-widest text-muted-foreground/60">
-                NIOM — Local-first AI Agent
+                NIOM{appVersion ? ` v${appVersion}` : ""} — Local-first AI Agent
               </p>
               <AboutUpdater />
             </div>

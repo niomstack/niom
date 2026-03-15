@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, shell } from "electron";
+import { ipcMain, BrowserWindow, shell, app } from "electron";
 
 /** Register all window-related IPC handlers */
 export function registerWindowIpc(getMainWindow: () => BrowserWindow | null): void {
@@ -18,6 +18,8 @@ export function registerWindowIpc(getMainWindow: () => BrowserWindow | null): vo
   ipcMain.handle("window:isMaximized", () => getMainWindow()?.isMaximized() ?? false);
 
   ipcMain.handle("window:platform", () => process.platform);
+
+  ipcMain.handle("app:version", () => app.getVersion());
 
   // ─── Shell helpers ───────────────────────────────────────────────
   ipcMain.handle("shell:openPath", async (_event, filePath: string) => {

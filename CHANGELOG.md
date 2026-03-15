@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.5](https://github.com/niomstack/niom/compare/niom-v0.1.4...niom-v0.1.5) (2026-03-15)
+
+
+### Features
+
+* surface auto-updater in UI ([1d20829](https://github.com/niomstack/niom/commit/1d2082969c4c44c380ee2169558264ce3a2dcaa5))
+
 ## [0.1.4](https://github.com/niomstack/niom/compare/niom-v0.1.3...niom-v0.1.4) (2026-03-15)
 
 

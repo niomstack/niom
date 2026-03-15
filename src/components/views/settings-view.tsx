@@ -492,10 +492,11 @@ function SettingsView({ onBack }: SettingsViewProps) {
             )}
 
             {/* About — always at bottom */}
-            <div className="border-t border-border pt-4">
+            <div className="border-t border-border pt-4 space-y-2">
               <p className="text-center font-mono text-[0.6rem] uppercase tracking-widest text-muted-foreground/60">
-                NIOM v0.1.0 — Local-first AI Agent
+                NIOM — Local-first AI Agent
               </p>
+              <AboutUpdater />
             </div>
           </div>
         </ScrollArea>
@@ -1411,6 +1412,100 @@ function StatusBadge({
     <Badge variant="outline" className="text-xs text-muted-foreground">
       Not configured
     </Badge>
+  );
+}
+
+// ─── About / Updater ─────────────────────────────────────────────────
+
+type UpdaterStatus = "idle" | "checking" | "available" | "up-to-date" | "downloading" | "ready" | "error";
+
+function AboutUpdater() {
+  const [status, setStatus] = useState<UpdaterStatus>("idle");
+  const [version, setVersion] = useState<string | null>(null);
+  const [progress, setProgress] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const cleanup = window.niom?.updater?.onStatus(
+      (data: { status: string; version?: string; progress?: number; error?: string }) => {
+        setStatus(data.status as UpdaterStatus);
+        if (data.version) setVersion(data.version);
+        if (data.progress != null) setProgress(data.progress);
+        if (data.error) setError(data.error);
+      }
+    );
+    return cleanup;
+  }, []);
+
+  const handleCheck = async () => {
+    setStatus("checking");
+    setError(null);
+    const available = await window.niom?.updater?.check();
+    if (available) {
+      setVersion(available);
+      setStatus("available");
+    } else {
+      setStatus("up-to-date");
+    }
+  };
+
+  const handleDownload = async () => {
+    setStatus("downloading");
+    setProgress(0);
+    await window.niom?.updater?.download();
+  };
+
+  const handleInstall = () => {
+    window.niom?.updater?.install();
+  };
+
+  return (
+    <div className="flex items-center justify-center gap-2">
+      {status === "idle" && (
+        <Button variant="ghost" size="sm" onClick={handleCheck} className="h-5 px-2 font-mono text-[0.6rem] text-muted-foreground/60 hover:text-foreground">
+          Check for updates
+        </Button>
+      )}
+      {status === "checking" && (
+        <span className="flex items-center gap-1.5 font-mono text-[0.6rem] text-muted-foreground/60">
+          <Loader2 className="size-3 animate-spin" />
+          Checking…
+        </span>
+      )}
+      {status === "up-to-date" && (
+        <span className="flex items-center gap-1.5 font-mono text-[0.6rem] text-muted-foreground/60">
+          <CheckCircle2 className="size-3 text-green-500" />
+          Up to date
+        </span>
+      )}
+      {status === "available" && version && (
+        <Button variant="ghost" size="sm" onClick={handleDownload} className="h-5 px-2 font-mono text-[0.6rem] text-primary hover:text-primary">
+          <Download className="size-3 mr-1" />
+          v{version} available — download
+        </Button>
+      )}
+      {status === "downloading" && (
+        <span className="flex items-center gap-1.5 font-mono text-[0.6rem] text-primary">
+          <Loader2 className="size-3 animate-spin" />
+          Downloading{progress != null ? ` ${progress}%` : "…"}
+        </span>
+      )}
+      {status === "ready" && (
+        <Button variant="ghost" size="sm" onClick={handleInstall} className="h-5 px-2 font-mono text-[0.6rem] text-green-500 hover:text-green-400">
+          <Download className="size-3 mr-1" />
+          Restart to update
+        </Button>
+      )}
+      {status === "error" && (
+        <span className="flex items-center gap-1.5 font-mono text-[0.6rem] text-muted-foreground/50">
+          <XCircle className="size-3" />
+          {error || "Update check failed"}
+          <Button variant="ghost" size="sm" onClick={handleCheck} className="h-4 px-1 font-mono text-[0.55rem] text-muted-foreground/50">
+            retry
+          </Button>
+        </span>
+      )}
+    </div>
   );
 }
 

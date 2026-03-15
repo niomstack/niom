@@ -1,13 +1,16 @@
 import { useEffect, useState } from "react";
-import { Minus, Square, X, Sun, Moon } from "lucide-react";
+import { Minus, Square, X, Sun, Moon, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import niomLogo from "@/assets/niom-logo.png";
 
 interface TitlebarProps {
   isDark: boolean;
   onToggleTheme: () => void;
+  onOpenSettings?: () => void;
+  showSettingsButton?: boolean;
 }
 
-function Titlebar({ isDark, onToggleTheme }: TitlebarProps) {
+function Titlebar({ isDark, onToggleTheme, onOpenSettings, showSettingsButton = true }: TitlebarProps) {
   const [platform, setPlatform] = useState<string>("darwin");
 
   useEffect(() => {
@@ -31,7 +34,7 @@ function Titlebar({ isDark, onToggleTheme }: TitlebarProps) {
 
       {/* Center — app title */}
       <div className="flex items-center gap-2">
-        <div className="size-1.5 rounded-full bg-primary shadow-[0_0_6px_oklch(0.74_0.14_290)] animate-pulse" />
+        <img src={niomLogo} alt="" className="size-4" draggable={false} />
         <span className="font-mono text-[0.65rem] uppercase tracking-widest text-muted-foreground">
           NIOM
         </span>
@@ -42,6 +45,16 @@ function Titlebar({ isDark, onToggleTheme }: TitlebarProps) {
         className="flex items-center mr-2"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
+        {showSettingsButton && onOpenSettings && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onOpenSettings}
+            className="size-8 text-muted-foreground hover:text-foreground"
+          >
+            <Settings className="size-3.5" />
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="icon"

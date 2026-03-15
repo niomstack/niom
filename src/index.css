@@ -1,5 +1,123 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@plugin "@tailwindcss/typography";
+
+/* ============================================================
+   NIOM Prose — Markdown rendering in chat messages
+
+   Overrides @tailwindcss/typography defaults to match NIOM
+   theme tokens. Applied via `prose dark:prose-invert` on
+   message containers.
+   ============================================================ */
+
+.prose {
+  --tw-prose-body: var(--foreground);
+  --tw-prose-headings: var(--foreground);
+  --tw-prose-links: var(--primary);
+  --tw-prose-bold: var(--foreground);
+  --tw-prose-code: var(--primary);
+  --tw-prose-quotes: var(--muted-foreground);
+  --tw-prose-quote-borders: var(--border);
+  --tw-prose-counters: var(--muted-foreground);
+  --tw-prose-bullets: var(--muted-foreground);
+  --tw-prose-hr: var(--border);
+  --tw-prose-th-borders: var(--border);
+  --tw-prose-td-borders: var(--border);
+  --tw-prose-captions: var(--muted-foreground);
+  --tw-prose-pre-bg: var(--muted);
+  --tw-prose-pre-code: var(--foreground);
+}
+
+/* Headings — slightly larger, with bottom border for h1/h2 */
+.prose :where(h1):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  font-size: 1.35em;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.4em;
+  margin-top: 1.5em;
+}
+.prose :where(h2):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  font-size: 1.2em;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.35em;
+  margin-top: 1.3em;
+}
+.prose :where(h3):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  font-size: 1.05em;
+  margin-top: 1.2em;
+}
+
+/* Links — violet with glow on hover */
+.prose :where(a):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition: all 0.15s ease;
+}
+.prose :where(a):not(:where([class~="not-prose"], [class~="not-prose"] *)):hover {
+  opacity: 0.85;
+}
+
+/* Inline code — pill style */
+.prose :where(code):not(:where(pre *, [class~="not-prose"], [class~="not-prose"] *)) {
+  background: var(--muted);
+  border-radius: 0.3rem;
+  padding: 0.15em 0.4em;
+  font-size: 0.85em;
+  font-weight: 500;
+}
+.prose :where(code):not(:where(pre *, [class~="not-prose"], [class~="not-prose"] *))::before,
+.prose :where(code):not(:where(pre *, [class~="not-prose"], [class~="not-prose"] *))::after {
+  content: none; /* Remove the backtick quotes that typography adds */
+}
+
+/* Code blocks — rounded, tighter */
+.prose :where(pre):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  border-radius: 0.6rem;
+  border: 1px solid var(--border);
+  padding: 0.85rem 1rem;
+  font-size: 0.8em;
+  line-height: 1.6;
+  overflow-x: auto;
+}
+
+/* Blockquotes — left border with primary accent */
+.prose :where(blockquote):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  border-left-color: var(--primary);
+  border-left-width: 3px;
+  font-style: normal;
+  color: var(--muted-foreground);
+}
+
+/* Tables — clean borders */
+.prose :where(table):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  font-size: 0.85em;
+}
+.prose :where(th):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  font-weight: 600;
+  text-align: left;
+}
+
+/* Lists — tighter spacing */
+.prose :where(ul, ol):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+.prose :where(li):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  margin-top: 0.2em;
+  margin-bottom: 0.2em;
+}
+
+/* HR — subtle */
+.prose :where(hr):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  border-color: var(--border);
+  margin-top: 1.5em;
+  margin-bottom: 1.5em;
+}
+
+/* Strong / Bold — foreground color (not default gray) */
+.prose :where(strong):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  color: var(--foreground);
+  font-weight: 600;
+}
 
 @custom-variant dark (&:is(.dark *));
 
@@ -65,9 +183,9 @@
 :root {
   --radius: 0.5rem;
 
-  --background: oklch(0.98 0.004 290);
+  --background: oklch(0.965 0.004 290);
   --foreground: oklch(0.20 0.02 285);
-  --card: oklch(0.995 0.002 290);
+  --card: oklch(1.0 0 0);
   --card-foreground: oklch(0.20 0.02 285);
   --popover: oklch(0.995 0.002 290);
   --popover-foreground: oklch(0.20 0.02 285);
@@ -106,7 +224,7 @@
 .dark {
   --background: oklch(0.14 0.012 285);
   --foreground: oklch(0.93 0.008 280);
-  --card: oklch(0.18 0.015 285);
+  --card: oklch(0.20 0.015 285);
   --card-foreground: oklch(0.93 0.008 280);
   --popover: oklch(0.16 0.012 285);
   --popover-foreground: oklch(0.93 0.008 280);
@@ -120,8 +238,8 @@
   --accent-foreground: oklch(0.14 0.02 55);
   --destructive: oklch(0.65 0.18 15);
   --destructive-foreground: oklch(0.14 0.02 15);
-  --border: oklch(0.34 0.012 285);
-  --input: oklch(0.26 0.015 285);
+  --border: oklch(0.38 0.012 285);
+  --input: oklch(0.30 0.015 285);
   --ring: oklch(0.74 0.14 290);
 
   --chart-1: oklch(0.74 0.14 290);

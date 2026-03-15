@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.6](https://github.com/niomstack/niom/compare/niom-v0.1.5...niom-v0.1.6) (2026-03-15)
+
+
+### Bug Fixes
+
+* show real app version in Settings ([23904c6](https://github.com/niomstack/niom/commit/23904c644eaf6b22e3490965218a59af344ace31))
+
 ## [0.1.5](https://github.com/niomstack/niom/compare/niom-v0.1.4...niom-v0.1.5) (2026-03-15)
 
 

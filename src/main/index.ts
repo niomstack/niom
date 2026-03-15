@@ -43,15 +43,20 @@ const createWindow = (): void => {
   const iconPath = path.join(resourcesBase, "resources", "niom-logo.png");
   const icon = nativeImage.createFromPath(iconPath);
 
+  const isMac = process.platform === "darwin";
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     minWidth: 680,
     minHeight: 500,
-    titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 16, y: 16 },
+    // macOS: hide native titlebar but keep traffic lights
+    ...(isMac
+      ? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 16, y: 16 } }
+      : { frame: false }),
     backgroundColor: "#1e1b2e", // matches dark background
     icon,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
     },

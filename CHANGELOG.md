@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/niomstack/niom/compare/niom-v0.1.2...niom-v0.1.3) (2026-03-15)
+
+
+### Bug Fixes
+
+* add icon assets for all platforms (icns, ico, png) ([346cdde](https://github.com/niomstack/niom/commit/346cdde2f2b2fe9b7e4d45ddb835eb6bc5ddc268))
+
 ## [0.1.2](https://github.com/niomstack/niom/compare/niom-v0.1.1...niom-v0.1.2) (2026-03-15)
 
 

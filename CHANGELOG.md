@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/niomstack/niom/compare/niom-v0.1.3...niom-v0.1.4) (2026-03-15)
+
+
+### Bug Fixes
+
+* remove native Windows titlebar — use frameless window on win/linux ([23f2730](https://github.com/niomstack/niom/commit/23f273046f39630370b415c49a30b45231eec500))
+
 ## [0.1.3](https://github.com/niomstack/niom/compare/niom-v0.1.2...niom-v0.1.3) (2026-03-15)
 
 

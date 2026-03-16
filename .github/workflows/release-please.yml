@@ -25,7 +25,7 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  # ─── Step 2: Build & Publish (only when release is created) ──────
+  # ─── Step 2: Build & Upload (only when release is created) ───────
   build:
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
@@ -79,7 +79,7 @@ jobs:
             security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
           fi
 
-      # Build the Electron app
+      # Build the Electron app (make only — no publish)
       - name: Make distributables
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -88,14 +88,32 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: npm run make -- --arch=${{ matrix.arch }}
 
-      # Upload artifacts to the GitHub Release
-      - name: Publish to GitHub Release
+      # Upload build artifacts to the EXISTING release-please release
+      # This avoids creating a duplicate release (Forge publisher creates its own)
+      - name: Upload to GitHub Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run publish -- --arch=${{ matrix.arch }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ needs.release-please.outputs.tag_name }}"
+          echo "Uploading artifacts to release: $TAG"
+
+          # Find all distributable files
+          find out/make -type f \( \
+            -name "*.dmg" -o \
+            -name "*.zip" -o \
+            -name "*.exe" -o \
+            -name "*.nupkg" -o \
+            -name "*.deb" -o \
+            -name "*.rpm" -o \
+            -name "RELEASES" \
+          \) | while read -r file; do
+            echo "  Uploading: $(basename "$file")"
+            gh release upload "$TAG" "$file" --clobber || true
+          done
+        shell: bash
 
       # Also upload as workflow artifacts (for debugging)
-      - name: Upload artifacts
+      - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
         with:
           name: niom-${{ matrix.platform }}-${{ matrix.arch }}

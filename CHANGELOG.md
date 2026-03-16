@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.8](https://github.com/niomstack/niom/compare/niom-v0.1.7...niom-v0.1.8) (2026-03-16)
+
+
+### Bug Fixes
+
+* eliminate duplicate GitHub releases ([d0e3cea](https://github.com/niomstack/niom/commit/d0e3cea71839d79d84ba1f49f0b92306cad72ed7))
+
 ## [0.1.7](https://github.com/niomstack/niom/compare/niom-v0.1.6...niom-v0.1.7) (2026-03-15)
 
 

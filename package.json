@@ -1,7 +1,7 @@
 {
   "name": "niom",
   "productName": "NIOM",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Local-first AI agent that learns, remembers, and grows with every conversation.",
   "main": ".webpack/main",
   "private": true,

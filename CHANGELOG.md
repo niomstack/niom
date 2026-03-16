@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.7](https://github.com/niomstack/niom/compare/niom-v0.1.6...niom-v0.1.7) (2026-03-15)
+
+
+### Bug Fixes
+
+* resolve auto-updater ENOENT for app-update.yml on Windows ([da33753](https://github.com/niomstack/niom/commit/da33753bd9b2481eafef591568e3552317ad21e7))
+
 ## [0.1.6](https://github.com/niomstack/niom/compare/niom-v0.1.5...niom-v0.1.6) (2026-03-15)
 
 

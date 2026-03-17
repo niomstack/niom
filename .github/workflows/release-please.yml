@@ -88,40 +88,80 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: npm run make -- --arch=${{ matrix.arch }}
 
-      # Generate electron-updater manifest files (latest.yml / latest-mac.yml / latest-linux.yml)
-      # These are required by electron-updater to discover and verify updates.
+      # Normalize artifact names: all lowercase, no spaces, no "Setup"
+      # Forge produces names like "NIOM-0.1.9 Setup.exe" — we want "niom-0.1.9.exe"
+      - name: Normalize artifact names
+        shell: bash
+        env:
+          VERSION: ${{ needs.release-please.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          echo "Normalizing artifact names..."
+          mkdir -p out/release
+
+          # Windows
+          for f in $(find out/make -name "*.exe" -type f); do
+            cp "$f" "out/release/niom-${VERSION}.exe"
+            echo "  $(basename "$f") → niom-${VERSION}.exe"
+          done
+
+          # macOS DMG
+          for f in $(find out/make -name "*.dmg" -type f); do
+            cp "$f" "out/release/niom-${VERSION}-${ARCH}.dmg"
+            echo "  $(basename "$f") → niom-${VERSION}-${ARCH}.dmg"
+          done
+
+          # macOS ZIP (needed for auto-update)
+          for f in $(find out/make -name "*.zip" -type f); do
+            cp "$f" "out/release/niom-${VERSION}-${ARCH}.zip"
+            echo "  $(basename "$f") → niom-${VERSION}-${ARCH}.zip"
+          done
+
+          # Linux DEB
+          for f in $(find out/make -name "*.deb" -type f); do
+            cp "$f" "out/release/niom-${VERSION}.deb"
+            echo "  $(basename "$f") → niom-${VERSION}.deb"
+          done
+
+          # Linux RPM
+          for f in $(find out/make -name "*.rpm" -type f); do
+            cp "$f" "out/release/niom-${VERSION}.rpm"
+            echo "  $(basename "$f") → niom-${VERSION}.rpm"
+          done
+
+          # Squirrel files (nupkg, RELEASES) — keep as-is
+          for f in $(find out/make -name "*.nupkg" -o -name "RELEASES" | grep -v "\.yml"); do
+            cp "$f" "out/release/"
+          done
+
+          echo "Normalized artifacts:"
+          ls -la out/release/
+
+      # Generate electron-updater manifest files from normalized artifacts
       - name: Generate update manifests
         shell: bash
         env:
           VERSION: ${{ needs.release-please.outputs.version }}
+          ARCH: ${{ matrix.arch }}
         run: |
           echo "Generating update manifests for v${VERSION}..."
 
-          # Windows: latest.yml (from .exe installer)
+          # Windows: latest.yml
           if [ "${{ matrix.platform }}" = "win32" ]; then
-            EXE=$(find out/make -name "*.exe" -type f | head -1)
-            if [ -n "$EXE" ]; then
-              node scripts/generate-update-manifest.js "$EXE" "out/make/latest.yml" "$VERSION"
-            fi
+            node scripts/generate-update-manifest.js "out/release/niom-${VERSION}.exe" "out/release/latest.yml" "$VERSION"
           fi
 
-          # macOS: latest-mac.yml (from .zip — required for auto-update)
+          # macOS: latest-mac.yml
           if [ "${{ matrix.platform }}" = "darwin" ]; then
-            ZIP=$(find out/make -name "*.zip" -type f | head -1)
-            if [ -n "$ZIP" ]; then
-              node scripts/generate-update-manifest.js "$ZIP" "out/make/latest-mac.yml" "$VERSION"
-            fi
+            node scripts/generate-update-manifest.js "out/release/niom-${VERSION}-${ARCH}.zip" "out/release/latest-mac.yml" "$VERSION"
           fi
 
-          # Linux: latest-linux.yml (from .deb)
+          # Linux: latest-linux.yml
           if [ "${{ matrix.platform }}" = "linux" ]; then
-            DEB=$(find out/make -name "*.deb" -type f | head -1)
-            if [ -n "$DEB" ]; then
-              node scripts/generate-update-manifest.js "$DEB" "out/make/latest-linux.yml" "$VERSION"
-            fi
+            node scripts/generate-update-manifest.js "out/release/niom-${VERSION}.deb" "out/release/latest-linux.yml" "$VERSION"
           fi
 
-      # Upload build artifacts + manifests to the EXISTING release-please release
+      # Upload normalized artifacts to the release
       - name: Upload to GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -129,19 +169,7 @@ jobs:
           TAG="${{ needs.release-please.outputs.tag_name }}"
           echo "Uploading artifacts to release: $TAG"
 
-          # Find all distributable files + manifest files
-          find out/make -type f \( \
-            -name "*.dmg" -o \
-            -name "*.zip" -o \
-            -name "*.exe" -o \
-            -name "*.nupkg" -o \
-            -name "*.deb" -o \
-            -name "*.rpm" -o \
-            -name "latest.yml" -o \
-            -name "latest-mac.yml" -o \
-            -name "latest-linux.yml" -o \
-            -name "RELEASES" \
-          \) | while read -r file; do
+          for file in out/release/*; do
             echo "  Uploading: $(basename "$file")"
             gh release upload "$TAG" "$file" --clobber || true
           done
@@ -152,12 +180,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: niom-${{ matrix.platform }}-${{ matrix.arch }}
-          path: |
-            out/make/**/*.dmg
-            out/make/**/*.zip
-            out/make/**/*.exe
-            out/make/**/*.nupkg
-            out/make/**/*.deb
-            out/make/**/*.rpm
-            out/make/**/latest*.yml
+          path: out/release/*
           if-no-files-found: ignore

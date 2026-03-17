@@ -88,8 +88,40 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: npm run make -- --arch=${{ matrix.arch }}
 
-      # Upload build artifacts to the EXISTING release-please release
-      # This avoids creating a duplicate release (Forge publisher creates its own)
+      # Generate electron-updater manifest files (latest.yml / latest-mac.yml / latest-linux.yml)
+      # These are required by electron-updater to discover and verify updates.
+      - name: Generate update manifests
+        shell: bash
+        env:
+          VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          echo "Generating update manifests for v${VERSION}..."
+
+          # Windows: latest.yml (from .exe installer)
+          if [ "${{ matrix.platform }}" = "win32" ]; then
+            EXE=$(find out/make -name "*.exe" -type f | head -1)
+            if [ -n "$EXE" ]; then
+              node scripts/generate-update-manifest.js "$EXE" "out/make/latest.yml" "$VERSION"
+            fi
+          fi
+
+          # macOS: latest-mac.yml (from .zip — required for auto-update)
+          if [ "${{ matrix.platform }}" = "darwin" ]; then
+            ZIP=$(find out/make -name "*.zip" -type f | head -1)
+            if [ -n "$ZIP" ]; then
+              node scripts/generate-update-manifest.js "$ZIP" "out/make/latest-mac.yml" "$VERSION"
+            fi
+          fi
+
+          # Linux: latest-linux.yml (from .deb)
+          if [ "${{ matrix.platform }}" = "linux" ]; then
+            DEB=$(find out/make -name "*.deb" -type f | head -1)
+            if [ -n "$DEB" ]; then
+              node scripts/generate-update-manifest.js "$DEB" "out/make/latest-linux.yml" "$VERSION"
+            fi
+          fi
+
+      # Upload build artifacts + manifests to the EXISTING release-please release
       - name: Upload to GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -97,7 +129,7 @@ jobs:
           TAG="${{ needs.release-please.outputs.tag_name }}"
           echo "Uploading artifacts to release: $TAG"
 
-          # Find all distributable files
+          # Find all distributable files + manifest files
           find out/make -type f \( \
             -name "*.dmg" -o \
             -name "*.zip" -o \
@@ -105,6 +137,9 @@ jobs:
             -name "*.nupkg" -o \
             -name "*.deb" -o \
             -name "*.rpm" -o \
+            -name "latest.yml" -o \
+            -name "latest-mac.yml" -o \
+            -name "latest-linux.yml" -o \
             -name "RELEASES" \
           \) | while read -r file; do
             echo "  Uploading: $(basename "$file")"
@@ -124,4 +159,5 @@ jobs:
             out/make/**/*.nupkg
             out/make/**/*.deb
             out/make/**/*.rpm
+            out/make/**/latest*.yml
           if-no-files-found: ignore

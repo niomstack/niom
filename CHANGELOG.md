@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.9](https://github.com/niomstack/niom/compare/niom-v0.1.8...niom-v0.1.9) (2026-03-17)
+
+
+### Bug Fixes
+
+* generate electron-updater manifests and add update badge to titlebar ([c51d39f](https://github.com/niomstack/niom/commit/c51d39f6b196496621140494c904091302df0d0e))
+
 ## [0.1.8](https://github.com/niomstack/niom/compare/niom-v0.1.7...niom-v0.1.8) (2026-03-16)
 
 
